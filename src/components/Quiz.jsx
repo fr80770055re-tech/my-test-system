@@ -1,220 +1,228 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import moneyIconImg from '../assets/money.png';
 
-const Quiz = ({ user, onLogout }) => {
+// 🌟 獨立的洗牌小幫手：負責把選項打亂，並重新標定正確答案的位置
+const shuffleQuestion = (q) => {
+  // 1. 先記住「正確答案的文字」是什麼
+  const correctText = q.options[q.correct_answer];
+  
+  // 2. 把所有有內容的選項抓出來過濾掉空白的，並打亂順序
+  const validOptions = Object.values(q.options).filter(opt => opt && opt.trim() !== '');
+  const shuffledOptions = validOptions.sort(() => Math.random() - 0.5);
+  
+  // 3. 重新分配給 A, B, C, D
+  const newOptions = {};
+  let newCorrectAnswer = 'A'; // 預設值
+  const labels = ['A', 'B', 'C', 'D'];
+  
+  shuffledOptions.forEach((text, idx) => {
+    const label = labels[idx];
+    newOptions[label] = text;
+    // 如果這個文字跟原本的正確文字一樣，那這個位置就是新的正確答案！
+    if (text === correctText) {
+      newCorrectAnswer = label;
+    }
+  });
+  
+  return { ...q, options: newOptions, correct_answer: newCorrectAnswer };
+};
+
+const Quiz = ({ user, userData, onBack }) => {
+  const [gameState, setGameState] = useState('menu'); 
   const [questions, setQuestions] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [result, setResult] = useState({ score: 0, coins: 0 });
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  
+  const [mistakes, setMistakes] = useState([]);
+  const [isFirstRound, setIsFirstRound] = useState(true);
+  const [firstTryScore, setFirstTryScore] = useState(0);
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 1. 元件載入時，從 Firebase 抓取題庫
-  useEffect(() => {
-    const fetchQuestions = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "questions"));
-        const fetchedQuestions = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        
-        // 如果沒有題目，給一個防呆提示
-        if (fetchedQuestions.length === 0) {
-          alert("目前還沒有題目喔！請先請老師匯入題庫。");
-        } else {
-          setQuestions(fetchedQuestions);
-        }
-      } catch (error) {
-        console.error("抓取題目失敗:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchQuestions();
-  }, []);
-
-  const currentQuestion = questions[currentIndex];
-
-  const handleSelect = (optionKey) => {
-    setAnswers({
-      ...answers,
-      [currentQuestion.id]: optionKey
-    });
-  };
-
-  // 2. 處理交卷與計分邏輯
-  const handleSubmit = async () => {
-    const unansweredCount = questions.length - Object.keys(answers).length;
-    let confirmMessage = "確定要交卷了嗎？交卷後就不能修改囉！";
-    if (unansweredCount > 0) {
-      confirmMessage = `您還有 ${unansweredCount} 題沒寫完！確定要提早交卷嗎？`;
-    }
-
-    if (!window.confirm(confirmMessage)) return;
-
-    setIsLoading(true);
-    let totalScore = 0;
-
-    // 計算分數與部分給分
-    questions.forEach(q => {
-      const studentAnswer = answers[q.id];
-      if (studentAnswer === q.correct_answer) {
-        totalScore += q.points; // 全對得全分
-      } else if (q.partial_scores && q.partial_scores[studentAnswer]) {
-        totalScore += q.partial_scores[studentAnswer]; // 獲得部分給分
-      }
-    });
-
-    // 設定獲得的金幣 (MVP 先設定 1分 = 1金幣)
-    const coinsEarned = totalScore;
-
+  const startGame = async () => {
+    setGameState('playing');
+    setIsSubmitting(true);
     try {
-      // 寫入成績紀錄 (records)
-      await addDoc(collection(db, "records"), {
-        student_id: user.uid,
-        student_name: user.displayName || user.name,
-        answers: answers,
-        total_score: totalScore,
-        coins_earned: coinsEarned,
-        submitted_at: new Date().toISOString()
-      });
-
-      // 更新學生的金幣餘額 (users)
-      const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        coins: increment(coinsEarned)
-      });
-
-      setResult({ score: totalScore, coins: coinsEarned });
-      setIsSubmitted(true);
+      const querySnapshot = await getDocs(collection(db, "questions"));
+      let allQuestions = [];
+      querySnapshot.forEach(doc => allQuestions.push({ id: doc.id, ...doc.data() }));
+      
+      // 🌟 抽出題目後，不僅題目順序打亂，連每個選項都呼叫 shuffleQuestion 洗牌！
+      allQuestions = allQuestions
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 10)
+        .map(shuffleQuestion); 
+      
+      setQuestions(allQuestions);
+      setCurrentQIndex(0);
+      setMistakes([]);
+      setIsFirstRound(true);
+      setFirstTryScore(0);
     } catch (error) {
-      console.error("交卷失敗:", error);
-      alert("交卷失敗，請檢查網路連線。");
+      console.error("讀取題目失敗", error);
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (isLoading) {
-    return <div style={styles.container}><h2 style={styles.title}>⏳ 載入中...</h2></div>;
-  }
+  const handleAnswer = async (selectedOption) => {
+    const currentQ = questions[currentQIndex];
+    const isCorrect = (selectedOption === currentQ.correct_answer);
 
-  if (questions.length === 0) {
-    return (
-      <div style={styles.container}>
-        <h2 style={styles.title}>📭 目前沒有任何測驗</h2>
-        <button style={styles.submitBtn} onClick={onLogout}>登出</button>
-      </div>
-    );
-  }
+    if (isFirstRound) {
+      if (isCorrect) setFirstTryScore(prev => prev + 1);
+      try {
+        await addDoc(collection(db, "quiz_logs"), {
+          userId: user.uid,
+          userName: userData.name,
+          questionId: currentQ.id,
+          questionContent: currentQ.content,
+          isCorrectFirstTry: isCorrect,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) { console.error("數據上傳失敗", error); }
+    }
 
-  // 3. 交卷後的結算畫面
-  if (isSubmitted) {
-    return (
-      <div style={styles.container}>
-        <h2 style={styles.title}>🎉 測驗完成！</h2>
-        <div style={styles.resultCard}>
-          <p style={styles.text}>恭喜 {user.displayName || user.name} 順利完成測驗！</p>
-          <h1 style={styles.scoreText}>總分：{result.score} 分</h1>
-          <p style={styles.coinText}>💰 獲得金幣：{result.coins} 枚</p>
-        </div>
-        <button style={styles.submitBtn} onClick={onLogout}>登出並回到首頁</button>
-      </div>
-    );
-  }
+    const updatedMistakes = !isCorrect ? [...mistakes, currentQ] : mistakes;
+    if (!isCorrect) setMistakes(updatedMistakes);
 
-  // 測驗進行中的畫面
+    if (currentQIndex < questions.length - 1) {
+      setCurrentQIndex(prev => prev + 1);
+    } else {
+      if (updatedMistakes.length > 0) {
+        setGameState('reviewMistakes');
+      } else {
+        finishGame();
+      }
+    }
+  };
+
+  const handleRetryMistakes = () => {
+    // 🌟 進入補考時，不僅錯題順序打亂，錯題的選項也要再次洗牌！
+    const newQuestions = mistakes.map(shuffleQuestion).sort(() => Math.random() - 0.5);
+    
+    setQuestions(newQuestions);
+    setMistakes([]);
+    setCurrentQIndex(0);
+    setIsFirstRound(false); 
+    setGameState('playing');
+  };
+
+  const finishGame = async () => {
+    setGameState('result');
+    setIsSubmitting(true);
+    try {
+      const newCoins = (userData.coins || 0) + 10;
+      await updateDoc(doc(db, "users", user.uid), { coins: newCoins });
+      userData.coins = newCoins;
+    } catch (error) {
+      console.error("發放金幣失敗", error);
+    }
+    setIsSubmitting(false);
+  };
+
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <span style={styles.badge}>{currentQuestion.subject}</span>
-        <span style={styles.progress}>
-          第 {currentIndex + 1} / {questions.length} 題
-        </span>
-      </div>
-
-      <div style={styles.questionCard}>
-        <h3 style={styles.questionText}>
-          {currentIndex + 1}. {currentQuestion.content}
-        </h3>
-        {/* 提示小功能 */}
-        {currentQuestion.hint && (
-          <p style={styles.hintText}>💡 提示：{currentQuestion.hint}</p>
-        )}
-      </div>
-
-      <div style={styles.optionsContainer}>
-        {Object.entries(currentQuestion.options)
-          .filter(([key, value]) => value !== "") // 過濾掉空白選項(如是非題的C和D)
-          .map(([key, value]) => {
-          const isSelected = answers[currentQuestion.id] === key;
-          return (
-            <button
-              key={key}
-              style={{
-                ...styles.optionBtn,
-                backgroundColor: isSelected ? '#e3f2fd' : '#ffffff',
-                borderColor: isSelected ? '#2196f3' : '#e0e0e0',
-                borderWidth: isSelected ? '3px' : '1px',
-              }}
-              onClick={() => handleSelect(key)}
-            >
-              <span style={styles.optionKey}>{key}</span>
-              <span style={styles.optionValue}>{value}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={styles.footer}>
-        <button 
-          style={styles.navBtn} 
-          onClick={() => setCurrentIndex(currentIndex - 1)}
-          disabled={currentIndex === 0}
-        >
-          ◀ 上一題
-        </button>
-
-        {currentIndex === questions.length - 1 ? (
-          <button style={styles.submitBtn} onClick={handleSubmit}>
-            交卷 📤
+      {gameState === 'menu' && (
+        <div className="pixel-card" style={styles.card}>
+          <h2 style={styles.title}>📝 學科綜合測驗</h2>
+          <p style={styles.desc}>本測驗需全數答對才能獲得獎勵！答錯的題目系統會提供提示，幫助你重新思考並挑戰直到完全學會。</p>
+          <button className="pixel-btn btn-blue" style={styles.actionBtn} onClick={startGame} disabled={isSubmitting}>
+            {isSubmitting ? '⏳ 載入考卷中...' : '⚔️ 開始測驗 (獎勵 10 金幣)'}
           </button>
-        ) : (
-          <button 
-            style={styles.navBtn} 
-            onClick={() => setCurrentIndex(currentIndex + 1)}
-          >
-            下一題 ▶
+          <button className="pixel-btn btn-gray" style={{...styles.actionBtn, marginTop: '20px'}} onClick={onBack}>⬅ 返回主頁</button>
+        </div>
+      )}
+
+      {gameState === 'playing' && questions.length > 0 && (
+        <div className="pixel-card" style={styles.card}>
+          <h3 style={{color: '#7f8c8d', marginBottom: '15px'}}>
+            {isFirstRound ? '🎯 第一次作答' : '💪 錯題重測'} ({currentQIndex + 1}/{questions.length})
+          </h3>
+          
+          <div style={styles.qBox}>
+            {questions[currentQIndex].imageUrl && (
+              <img src={questions[currentQIndex].imageUrl} alt="題目附圖" style={styles.qImage} />
+            )}
+            <div style={styles.qText}>{questions[currentQIndex].content}</div>
+          </div>
+
+          <div style={styles.optionsGrid}>
+            {['A', 'B', 'C', 'D'].map(opt => (
+              questions[currentQIndex].options[opt] && (
+                <button key={opt} className="pixel-btn btn-blue" style={styles.optBtn} onClick={() => handleAnswer(opt)}>
+                  <span style={{color: '#d6b75a', marginRight: '10px'}}>{opt}.</span>
+                  {questions[currentQIndex].options[opt]}
+                </button>
+              )
+            ))}
+          </div>
+        </div>
+      )}
+
+      {gameState === 'reviewMistakes' && (
+        <div className="pixel-card" style={styles.card}>
+          <h2 style={{...styles.title, color: '#c0392b'}}>😵 觀念釐清時間！</h2>
+          <p style={{fontSize: '1.2rem', marginBottom: '20px'}}>請根據下方的提示再仔細想一想，確認後準備再次挑戰！</p>
+          
+          <div style={styles.mistakeList}>
+            {mistakes.map((m, idx) => (
+              <div key={idx} style={styles.mistakeItem}>
+                <div style={{fontWeight: 'bold', fontSize: '1.3rem', color: '#2c3e50'}}>{m.content || '(圖片題)'}</div>
+                
+                {m.explanation ? (
+                  <div style={styles.explanationBox}>
+                    💡 <strong>老師提示：</strong>{m.explanation}
+                  </div>
+                ) : (
+                  <div style={styles.explanationBox}>
+                    💡 <strong>提示：</strong>請再仔細檢查一下題目，或者回想一下上課的內容喔！
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          <button className="pixel-btn btn-red" style={styles.actionBtn} onClick={handleRetryMistakes}>
+            ⚔️ 我準備好了，再次挑戰！
           </button>
-        )}
-      </div>
+        </div>
+      )}
+
+      {gameState === 'result' && (
+        <div className="pixel-card" style={styles.card}>
+          <h2 style={styles.title}>🎉 完美過關！</h2>
+          <div className="pixel-box" style={{backgroundColor: '#e8e8e8', padding: '30px', margin: '20px 0'}}>
+            首輪答對數：<span style={{fontSize: '2rem', fontWeight: 'bold', color: '#8ca279'}}>{firstTryScore}</span> / 10 <br/><br/>
+            <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
+              你克服了所有難題！獲得 <img src={moneyIconImg} alt="money" style={{height: '30px', verticalAlign: 'middle'}} /> 10 金幣！
+            </div>
+          </div>
+          <button className="pixel-btn btn-gray" style={styles.actionBtn} onClick={onBack}>回首頁</button>
+        </div>
+      )}
     </div>
   );
 };
 
 const styles = {
-  container: { maxWidth: '800px', margin: '0 auto', padding: '20px', fontFamily: '"Microsoft JhengHei", sans-serif' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
-  badge: { backgroundColor: '#ffe082', padding: '5px 15px', borderRadius: '20px', fontWeight: 'bold', color: '#5d4037' },
-  progress: { fontSize: '1.2rem', color: '#7f8c8d', fontWeight: 'bold' },
-  questionCard: { backgroundColor: '#ffffff', padding: '30px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', marginBottom: '30px' },
-  questionText: { fontSize: '1.8rem', color: '#2c3e50', margin: 0, lineHeight: '1.5' },
-  hintText: { fontSize: '1.1rem', color: '#e67e22', marginTop: '15px', backgroundColor: '#fdf2e9', padding: '10px', borderRadius: '8px' },
-  optionsContainer: { display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '40px' },
-  optionBtn: { display: 'flex', alignItems: 'center', padding: '20px', borderRadius: '10px', borderStyle: 'solid', cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left' },
-  optionKey: { fontSize: '1.5rem', fontWeight: 'bold', color: '#34495e', width: '40px' },
-  optionValue: { fontSize: '1.5rem', color: '#2c3e50' },
-  footer: { display: 'flex', justifyContent: 'space-between', padding: '20px 0', borderTop: '2px solid #ecf0f1' },
-  navBtn: { padding: '15px 30px', fontSize: '1.2rem', backgroundColor: '#ecf0f1', color: '#34495e', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' },
-  submitBtn: { padding: '15px 40px', fontSize: '1.3rem', backgroundColor: '#e74c3c', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 6px rgba(231, 76, 60, 0.3)' },
-  title: { fontSize: '2.5rem', color: '#2c3e50', textAlign: 'center' },
-  text: { fontSize: '1.5rem', color: '#34495e', textAlign: 'center' },
-  resultCard: { backgroundColor: '#ffffff', padding: '40px', borderRadius: '15px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', textAlign: 'center', marginBottom: '30px' },
-  scoreText: { fontSize: '3rem', color: '#e74c3c', margin: '20px 0' },
-  coinText: { fontSize: '1.8rem', color: '#f39c12', fontWeight: 'bold' }
+  container: { width: '100%', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif' },
+  card: { padding: '30px', textAlign: 'center', backgroundColor: '#f2efeb' },
+  title: { fontSize: '2.2rem', color: '#4a4a4a', borderBottom: '4px dashed #4a4a4a', paddingBottom: '15px', marginBottom: '20px' },
+  desc: { fontSize: '1.3rem', color: '#4a4a4a', marginBottom: '30px', lineHeight: '1.5' },
+  actionBtn: { padding: '15px', fontSize: '1.5rem', width: '100%' },
+  
+  qBox: { padding: '30px', backgroundColor: '#fff', border: '6px solid #4a4a4a', marginBottom: '20px', textAlign: 'left' },
+  qImage: { maxWidth: '100%', maxHeight: '300px', marginBottom: '15px', border: '2px dashed #ccc' },
+  qText: { fontSize: '1.8rem', color: '#2c3e50', fontWeight: 'bold', lineHeight: '1.4' },
+  
+  optionsGrid: { display: 'flex', flexDirection: 'column', gap: '15px' },
+  optBtn: { padding: '20px', fontSize: '1.5rem', textAlign: 'left', lineHeight: '1.3' },
+
+  mistakeList: { display: 'flex', flexDirection: 'column', gap: '15px', maxHeight: '400px', overflowY: 'auto', marginBottom: '20px', textAlign: 'left' },
+  mistakeItem: { padding: '20px', backgroundColor: '#fff', border: '4px dashed #4a4a4a' },
+  explanationBox: { marginTop: '15px', padding: '15px', backgroundColor: '#e8f4f8', color: '#2c3e50', borderLeft: '6px solid #6e85b7', fontSize: '1.2rem' }
 };
 
 export default Quiz;
