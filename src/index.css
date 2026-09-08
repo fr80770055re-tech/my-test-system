@@ -1,0 +1,73 @@
+@font-face {
+  font-family: 'tearsfont-1.2';
+  /* 🌟 副檔名改成 .otf，後面的 format 必須改成 opentype */
+  src: url('./assets/tearsfont-1.2.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+/* =========================================
+   🎮 專屬低彩度像素復古風 UI 設定
+========================================= */
+
+/* 1. 像素風卡片基底 (低飽和羊皮紙色 + 粗黑邊框 + 硬陰影) */
+.pixel-card {
+  background-color: #f2efeb; 
+  border: 4px solid #4a4a4a; 
+  box-shadow: 6px 6px 0px #4a4a4a; 
+  border-radius: 0px; /* 像素風不需要圓角 */
+}
+
+/* 2. 像素風展示盒 (低飽和灰綠，Gameboy感) */
+.pixel-box {
+  background-color: #dcdfdc;
+  border: 4px solid #4a4a4a;
+}
+
+/* 3. 像素按鈕與互動動畫 */
+.pixel-btn {
+  font-family: 'tearsfont-1.2', "Microsoft JhengHei", sans-serif;
+  border: 4px solid #4a4a4a;
+  box-shadow: 4px 4px 0px #4a4a4a;
+  border-radius: 0px;
+  transition: transform 0.1s ease, box-shadow 0.1s ease; /* 瞬間回饋的動畫 */
+  cursor: pointer;
+  font-weight: bold;
+}
+
+/* 滑鼠移上去時：微微浮起 */
+.pixel-btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #4a4a4a;
+}
+
+/* 點擊壓下去時：按鈕下沉，陰影消失 (超有手感！) */
+.pixel-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px transparent;
+}
+
+/* 冷卻中/無法點擊的狀態 */
+.pixel-btn:disabled {
+  background-color: #9ea3a3;
+  color: #ecf0f1;
+  cursor: not-allowed;
+  box-shadow: 0px 0px 0px transparent;
+  transform: translate(4px, 4px);
+}
+
+/* 4. 低彩度按鈕色票 */
+.btn-blue { background-color: #6e85b7; color: white; }
+.btn-yellow { background-color: #d6b75a; color: #4a4a4a; }
+.btn-green { background-color: #8ca279; color: white; }
+.btn-red { background-color: #b97a7a; color: white; }
+.btn-gray { background-color: #9ea3a3; color: white; }
+
+/* 5. 角色專屬動畫：上下輕盈浮動 */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+  100% { transform: translateY(0px); }
+}
+.floating-avatar {
+  animation: float 3s ease-in-out infinite;
+}

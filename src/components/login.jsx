@@ -1,84 +1,86 @@
-import React, { useState } from 'react';
-import { loginWithGoogle } from '../firebase';
+import React, { useState, useEffect } from 'react';
+// 🌟 確保引入了 getRedirectResult 和 signInWithRedirect
+import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { auth, provider } from '../firebase'; 
 
 const Login = ({ onLoginSuccess }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleLogin = async () => {
+  useEffect(() => {
+    // 🌟 系統一載入，先檢查是不是剛剛「手機跳轉登入」回來的
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result && result.user) {
+          onLoginSuccess(result.user); // 跳轉成功，直接進入系統！
+        } else {
+          setIsLoading(false); // 不是跳轉回來的，顯示登入按鈕
+        }
+      })
+      .catch((error) => {
+        console.error("跳轉登入失敗:", error);
+        setIsLoading(false);
+      });
+  }, [onLoginSuccess]);
+
+  const handleGoogleLogin = async () => {
     setIsLoading(true);
-    setErrorMsg("");
+    // 偵測是否為手機或平板
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
     try {
-      const user = await loginWithGoogle();
-      console.log("登入成功！", user);
-      
-      // 呼叫上層元件傳遞下來的函式，通知 App 已經登入成功
-      if (onLoginSuccess) {
-        onLoginSuccess(user);
+      if (isMobile) {
+        // 📱 手機版：使用「本頁跳轉」登入，100% 避開彈出視窗阻擋！
+        await signInWithRedirect(auth, provider);
+      } else {
+        // 💻 電腦版：使用「彈出視窗」登入，體驗較快！
+        const result = await signInWithPopup(auth, provider);
+        onLoginSuccess(result.user);
       }
     } catch (error) {
-      setErrorMsg("登入失敗，請確認您的網路連線或重試。");
-    } finally {
+      console.error("登入失敗:", error);
+      alert("登入中斷，請確認網路或再試一次。");
       setIsLoading(false);
     }
   };
 
+  if (isLoading) {
+    return (
+      <div style={styles.container}>
+        <div className="pixel-card" style={styles.card}>
+          <h2 style={{ color: '#4a4a4a', fontSize: '1.8rem' }}>⏳ 系統登入中...</h2>
+          <p style={{ color: '#7f8c8d', marginTop: '10px' }}>請稍候，正在為您連接 Google</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>歡迎來到測驗系統</h1>
-      <p style={styles.subtitle}>請使用您的學校 Google 帳號登入</p>
-      
-      {errorMsg && <p style={styles.error}>{errorMsg}</p>}
-      
-      <button 
-        onClick={handleLogin} 
-        disabled={isLoading}
-        style={styles.button}
-      >
-        {isLoading ? "登入中..." : "📚 使用 Google 教育帳號登入"}
-      </button>
+      <div className="pixel-card" style={styles.card}>
+        <h1 style={{ fontSize: '2.5rem', color: '#4a4a4a', marginBottom: '20px' }}>五年忠班隨手測</h1>
+        <p style={{ fontSize: '1.2rem', color: '#7f8c8d', marginBottom: '30px' }}>請使用 Google 帳號登入系統</p>
+        
+        <button className="pixel-btn btn-blue" style={styles.loginBtn} onClick={handleGoogleLogin}>
+          🔑 Google 一鍵登入
+        </button>
+        
+        <div style={{ marginTop: '25px', padding: '15px', backgroundColor: '#fdf6e3', borderRadius: '10px', border: '3px dashed #d6b75a', textAlign: 'left' }}>
+          <p style={{ color: '#c0392b', fontSize: '1rem', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+            ⚠️ 手機使用重要提醒：
+          </p>
+          <p style={{ color: '#4a4a4a', fontSize: '0.95rem', margin: '0' }}>
+            若您從 LINE 群組點開，請務必點擊右上角 <strong>[⋮]</strong> 或 <strong>[⎋]</strong>，選擇 <strong>「以預設瀏覽器開啟」</strong>（Safari 或 Chrome），才能順利登入喔！
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
 
-// 簡單的高對比/大字體行內樣式 (MVP 階段適用)
 const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100vh',
-    backgroundColor: '#faf8f5',
-    fontFamily: '"Microsoft JhengHei", sans-serif',
-  },
-  title: {
-    fontSize: '2.5rem',
-    color: '#2c3e50',
-    marginBottom: '10px',
-  },
-  subtitle: {
-    fontSize: '1.2rem',
-    color: '#34495e',
-    marginBottom: '30px',
-  },
-  button: {
-    padding: '15px 30px',
-    fontSize: '1.5rem',
-    color: '#ffffff',
-    backgroundColor: '#3498db',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-  },
-  error: {
-    color: '#e74c3c',
-    fontSize: '1.2rem',
-    fontWeight: 'bold',
-    marginBottom: '20px',
-  }
+  container: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#f2efeb', width: '100%' },
+  card: { padding: '40px', textAlign: 'center', maxWidth: '400px', width: '90%' },
+  loginBtn: { padding: '15px 30px', fontSize: '1.5rem', width: '100%' }
 };
 
 export default Login;
