@@ -50,7 +50,7 @@ const Login = ({ onLoginSuccess }) => {
           <h2 style={{ color: '#4a4a4a', fontSize: '1.8rem' }}>⏳ 系統登入中...</h2>
           <p style={{ color: '#7f8c8d', marginTop: '10px' }}>請稍候，正在為您連接 Google</p>
         </div>
-        <div style={styles.credit}>by 浩宇老師（桃源國小專用）</div>
+        <div style={styles.credit}>© 2026 浩宇老師｜桃源國小專用</div>
       </div>
     );
   }
@@ -74,7 +74,7 @@ const Login = ({ onLoginSuccess }) => {
           </p>
         </div>
       </div>
-      <div style={styles.credit}>by 浩宇老師（桃源國小專用）</div>
+      <div style={styles.credit}>© 2026 浩宇老師｜桃源國小專用</div>
     </div>
   );
 };

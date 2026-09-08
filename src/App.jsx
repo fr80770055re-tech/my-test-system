@@ -120,7 +120,7 @@ function MainApp() {
           )}
 
           <div style={{ position: 'fixed', bottom: '8px', right: '12px', fontSize: '0.75rem', color: '#9a9a9a', opacity: 0.8, pointerEvents: 'none', userSelect: 'none', zIndex: 1000 }}>
-            by 浩宇老師（桃源國小專用）
+            © 2026 浩宇老師｜桃源國小專用
           </div>
         </div>
       )}
