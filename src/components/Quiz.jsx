@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, updateDoc, getDoc, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import moneyIconImg from '../assets/money.png';
 
@@ -29,7 +29,7 @@ const shuffleQuestion = (q) => {
   return { ...q, options: newOptions, correct_answer: newCorrectAnswer };
 };
 
-const Quiz = ({ user, userData, onBack }) => {
+const Quiz = ({ user, config, onBack }) => {
   const [gameState, setGameState] = useState('menu');
   const [questions, setQuestions] = useState([]);
   const [currentQIndex, setCurrentQIndex] = useState(0);
@@ -39,14 +39,48 @@ const Quiz = ({ user, userData, onBack }) => {
   const [firstTryScore, setFirstTryScore] = useState(0);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [totalQuestions, setTotalQuestions] = useState(0);
+
+  // 🌟 學生選擇的科目/單元/模式（來自 StudentHome）；userData 過去沒有實際被傳入，改為在這裡自己讀取最新資料
+  const subject = config?.subject || '數學';
+  const unit = config?.unit || 'ALL';
+  const mode = config?.mode || 'formal';
+  const settings = config?.settings || { cooldownMinutes: 60, coinMultiplier: 1, practiceReward: 0 };
+  const reward = mode === 'practice' ? (settings.practiceReward || 0) : Math.round(10 * (settings.coinMultiplier || 1));
+
+  const [profile, setProfile] = useState(null);
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists()) setProfile({ id: snap.id, ...snap.data() });
+      } catch (error) {
+        console.error("讀取學生資料失敗", error);
+      }
+    };
+    if (user?.uid) loadProfile();
+  }, [user]);
 
   const startGame = async () => {
     setGameState('playing');
     setIsSubmitting(true);
     try {
-      const querySnapshot = await getDocs(collection(db, "questions"));
+      // 🌟 依科目抓題，再依選擇的單元篩選（'ALL' 代表全部單元混合出題）
+      const q = query(collection(db, "questions"), where("subject", "==", subject));
+      const querySnapshot = await getDocs(q);
       let allQuestions = [];
-      querySnapshot.forEach(doc => allQuestions.push({ id: doc.id, ...doc.data() }));
+      querySnapshot.forEach(docSnap => allQuestions.push({ id: docSnap.id, ...docSnap.data() }));
+
+      if (unit !== 'ALL') {
+        allQuestions = allQuestions.filter(item => (item.unit || '未分類') === unit);
+      }
+
+      if (allQuestions.length === 0) {
+        alert('這個單元目前還沒有題目喔，請先請老師新增題目，或改選其他單元！');
+        setGameState('menu');
+        setIsSubmitting(false);
+        return;
+      }
 
       // 🌟 抽出題目後，不僅題目順序打亂，連每個選項都呼叫 shuffleQuestion 洗牌！
       allQuestions = allQuestions
@@ -55,12 +89,14 @@ const Quiz = ({ user, userData, onBack }) => {
         .map(shuffleQuestion);
 
       setQuestions(allQuestions);
+      setTotalQuestions(allQuestions.length); // 🌟 記住這輪測驗的總題數，之後補考輪次不會覆蓋這個數字
       setCurrentQIndex(0);
       setMistakes([]);
       setIsFirstRound(true);
       setFirstTryScore(0);
     } catch (error) {
       console.error("讀取題目失敗", error);
+      setGameState('menu');
     } finally {
       setIsSubmitting(false);
     }
@@ -75,7 +111,7 @@ const Quiz = ({ user, userData, onBack }) => {
       try {
         await addDoc(collection(db, "quiz_logs"), {
           userId: user.uid,
-          userName: userData.name,
+          userName: profile?.name || user.displayName || '未知學生',
           questionId: currentQ.id,
           questionContent: currentQ.content,
           isCorrectFirstTry: isCorrect,
@@ -113,9 +149,13 @@ const Quiz = ({ user, userData, onBack }) => {
     setGameState('result');
     setIsSubmitting(true);
     try {
-      const newCoins = (userData.coins || 0) + 10;
-      await updateDoc(doc(db, "users", user.uid), { coins: newCoins });
-      userData.coins = newCoins;
+      const newCoins = (profile?.coins || 0) + reward;
+      const updates = { coins: newCoins };
+      if (mode === 'formal') {
+        updates.last_quiz_time = new Date().toISOString(); // 🌟 只有正式測驗才會觸發冷卻時間
+      }
+      await updateDoc(doc(db, "users", user.uid), updates);
+      setProfile(prev => (prev ? { ...prev, coins: newCoins } : prev));
     } catch (error) {
       console.error("發放金幣失敗", error);
     }
@@ -126,10 +166,10 @@ const Quiz = ({ user, userData, onBack }) => {
     <div style={styles.container}>
       {gameState === 'menu' && (
         <div className="pixel-card" style={styles.card}>
-          <h2 style={styles.title}>📝 學科綜合測驗</h2>
+          <h2 style={styles.title}>📝 {subject}測驗 {unit !== 'ALL' && `- ${unit}`}</h2>
           <p style={styles.desc}>本測驗需全數答對才能獲得獎勵！答錯的題目系統會提供提示，幫助你重新思考並挑戰直到完全學會。</p>
           <button className="pixel-btn btn-blue" style={styles.actionBtn} onClick={startGame} disabled={isSubmitting}>
-            {isSubmitting ? '⏳ 載入考卷中...' : '⚔️ 開始測驗 (獎勵 10 金幣)'}
+            {isSubmitting ? '⏳ 載入考卷中...' : `⚔️ 開始測驗 ${reward > 0 ? `(獎勵 ${reward} 金幣)` : ''}`}
           </button>
           <button className="pixel-btn btn-gray" style={{...styles.actionBtn, marginTop: '20px'}} onClick={onBack}>⬅ 返回主頁</button>
         </div>
@@ -194,10 +234,16 @@ const Quiz = ({ user, userData, onBack }) => {
         <div className="pixel-card" style={styles.card}>
           <h2 style={styles.title}>🎉 完美過關！</h2>
           <div className="pixel-box" style={{backgroundColor: '#e8e8e8', padding: '30px', margin: '20px 0'}}>
-            首輪答對數：<span style={{fontSize: '2rem', fontWeight: 'bold', color: '#8ca279'}}>{firstTryScore}</span> / 10 <br/><br/>
-            <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
-              你克服了所有難題！獲得 <img src={moneyIconImg} alt="money" style={{height: '30px', verticalAlign: 'middle'}} /> 10 金幣！
-            </div>
+            首輪答對數：<span style={{fontSize: '2rem', fontWeight: 'bold', color: '#8ca279'}}>{firstTryScore}</span> / {totalQuestions} <br/><br/>
+            {reward > 0 ? (
+              <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
+                你克服了所有難題！獲得 <img src={moneyIconImg} alt="money" style={{height: '30px', verticalAlign: 'middle'}} /> {reward} 金幣！
+              </div>
+            ) : (
+              <div style={{color: '#8ca279', fontSize: '1.5rem', fontWeight: 'bold'}}>
+                你克服了所有難題！太棒了！
+              </div>
+            )}
           </div>
           <button className="pixel-btn btn-gray" style={styles.actionBtn} onClick={onBack}>回首頁</button>
         </div>

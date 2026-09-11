@@ -163,6 +163,7 @@ const TeacherDashboard = ({ user }) => {
   
   // --- 單題出題狀態 ---
   const [subject, setSubject] = useState('數學');
+  const [unit, setUnit] = useState(''); // 🌟 新增：單元/課別（例如「第一單元」「第二課」）
   const [content, setContent] = useState('');
   const [explanation, setExplanation] = useState('');
   const [options, setOptions] = useState({ A: '', B: '', C: '', D: '' });
@@ -170,7 +171,10 @@ const TeacherDashboard = ({ user }) => {
   const [imageBase64, setImageBase64] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [importSubject, setImportSubject] = useState('數學');
+  const [importUnit, setImportUnit] = useState(''); // 🌟 新增：CSV 匯入時，整批題目統一標記的單元/課別
   const [questionsList, setQuestionsList] = useState([]);
+  const [filterSubject, setFilterSubject] = useState('全部'); // 🌟 新增：題庫總覽的科目篩選
+  const [filterUnit, setFilterUnit] = useState('全部'); // 🌟 新增：題庫總覽的單元篩選
   
   // --- 分析狀態 ---
   const [analyticsData, setAnalyticsData] = useState([]);
@@ -227,6 +231,11 @@ const TeacherDashboard = ({ user }) => {
     }
     return () => unsubscribe();
   }, [activeTab]);
+
+  // 🌟 一開始就先載入題庫，讓「單元/課別」輸入框的建議清單在任何分頁都能立即使用
+  useEffect(() => {
+    fetchQuestions();
+  }, []);
 
   useEffect(() => {
     let interval = null;
@@ -638,6 +647,11 @@ const TeacherDashboard = ({ user }) => {
   const handleCSVUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!importUnit.trim()) {
+      alert('請先填寫「單元／課別」，這批題目才能被歸類方便日後查詢與測驗選擇！');
+      e.target.value = null;
+      return;
+    }
     const reader = new FileReader();
     reader.onload = async (event) => {
       setIsSubmitting(true);
@@ -671,12 +685,14 @@ const TeacherDashboard = ({ user }) => {
 
           await addDoc(collection(db, "questions"), {
             subject: importSubject,
+            unit: importUnit.trim(),
             content: qContent, options: qOpt, correct_answer: qAns,
             explanation: qExp, imageUrl: null, created_at: new Date().toISOString()
           });
           successCount++;
         }
-        alert(`🎉 成功匯入 ${successCount} 題！`);
+        alert(`🎉 成功匯入 ${successCount} 題到「${importSubject} - ${importUnit.trim()}」！`);
+        fetchQuestions();
       } catch (error) {
         alert('檔案解析失敗，請確保存為 UTF-8 編碼的 CSV 檔。');
       } finally {
@@ -699,19 +715,37 @@ const TeacherDashboard = ({ user }) => {
 
   const handleManualSubmit = async (e) => {
     e.preventDefault();
+    if (!unit.trim()) {
+      alert('請先填寫「單元／課別」，這樣才能在測驗時被歸類選取喔！');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, "questions"), {
-        subject, content, explanation, imageUrl: imageBase64 || null, 
+        subject, unit: unit.trim(), content, explanation, imageUrl: imageBase64 || null,
         options, correct_answer: correctAnswer, created_at: new Date().toISOString()
       });
       alert("🎉 題目新增成功！");
       setContent(''); setExplanation(''); setImageBase64('');
       setOptions({ A: '', B: '', C: '', D: '' });
+      // 🌟 保留 subject / unit，方便老師連續新增同一單元的多題題目
+      fetchQuestions();
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // 🌟 題庫總覽的科目／單元篩選（用於「題庫總覽」分頁）
+  const listSubjects = ['全部', ...new Set(questionsList.map(q => q.subject || '未分類'))];
+  const listUnits = ['全部', ...new Set(
+    questionsList
+      .filter(q => filterSubject === '全部' || (q.subject || '未分類') === filterSubject)
+      .map(q => q.unit || '未分類')
+  )];
+  const filteredQuestions = questionsList.filter(q =>
+    (filterSubject === '全部' || (q.subject || '未分類') === filterSubject) &&
+    (filterUnit === '全部' || (q.unit || '未分類') === filterUnit)
+  );
 
   return (
     <div style={styles.container}>
@@ -870,6 +904,22 @@ const TeacherDashboard = ({ user }) => {
               <option value="數學">數學</option><option value="國語">國語</option>
             </select>
           </div>
+          <div style={{...styles.inputGroup, textAlign: 'left', marginBottom: '20px'}}>
+            <label style={styles.label}>單元／課別（例如：第一單元、第二課）：</label>
+            <input
+              list="unit-suggestions"
+              style={styles.input}
+              placeholder="請輸入這批題目屬於哪個單元"
+              value={importUnit}
+              onChange={(e) => setImportUnit(e.target.value)}
+            />
+            <datalist id="unit-suggestions">
+              {[...new Set(questionsList.map(q => q.unit).filter(Boolean))].map(u => (
+                <option key={u} value={u} />
+              ))}
+            </datalist>
+            <p style={{color: '#7f8c8d', fontSize: '0.95rem', marginTop: '5px'}}>💡 這批 CSV 匯入的所有題目都會被標記為這個單元，方便日後在題庫總覽篩選、測驗時選取。</p>
+          </div>
           <div style={{padding: '30px', border: '4px dashed #4a4a4a', backgroundColor: '#fff', textAlign: 'center'}}>
             <input type="file" accept=".csv" onChange={handleCSVUpload} disabled={isSubmitting} style={{fontSize: '1.2rem'}} />
             {isSubmitting && <p style={{color: '#c0392b', fontWeight: 'bold'}}>⏳ 匯入中...</p>}
@@ -890,7 +940,24 @@ const TeacherDashboard = ({ user }) => {
                <option value="社會">社會</option>
              </select>
            </div>
-           
+
+           <div style={{...styles.inputGroup, textAlign: 'left'}}>
+             <label style={styles.label}>單元／課別（例如：第一單元、第二課）：</label>
+             <input
+               list="unit-suggestions"
+               style={styles.input}
+               placeholder="請輸入這題屬於哪個單元"
+               value={unit}
+               onChange={(e) => setUnit(e.target.value)}
+             />
+             {/* 🌟 依目前已存在的單元名稱提供自動建議，避免同一單元打成不同名稱 */}
+             <datalist id="unit-suggestions">
+               {[...new Set(questionsList.map(q => q.unit).filter(Boolean))].map(u => (
+                 <option key={u} value={u} />
+               ))}
+             </datalist>
+           </div>
+
            <div style={styles.inputGroup}>
             <label style={styles.label}>題目圖片 (選填，點擊框內 Ctrl+V 或 Mac ⌘+V 貼上)：</label>
             <div style={{...styles.pasteArea, borderColor: imageBase64 ? '#8ca279' : '#6e85b7'}} onPaste={handlePaste} tabIndex={0}>
@@ -931,11 +998,44 @@ const TeacherDashboard = ({ user }) => {
       {/* --- 題庫總覽 --- */}
       {activeTab === 'list' && (
         <div className="pixel-card" style={styles.card}>
-          <h3 style={styles.sectionTitle}>📚 已建立的題庫 ({questionsList.length} 題)</h3>
-          {questionsList.map((q) => (
+          <h3 style={styles.sectionTitle}>📚 已建立的題庫 ({filteredQuestions.length} / {questionsList.length} 題)</h3>
+
+          {/* 🌟 科目／單元篩選器，方便從大量題庫中快速找到特定課別 */}
+          <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '20px', padding: '15px', backgroundColor: '#e8e8e8', borderRadius: '10px', border: '3px solid #b2bec3'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <label style={{fontWeight: 'bold', color: '#4a4a4a'}}>科目：</label>
+              <select
+                style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px'}}
+                value={filterSubject}
+                onChange={(e) => { setFilterSubject(e.target.value); setFilterUnit('全部'); }}
+              >
+                {listSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <label style={{fontWeight: 'bold', color: '#4a4a4a'}}>單元／課別：</label>
+              <select
+                style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px'}}
+                value={filterUnit}
+                onChange={(e) => setFilterUnit(e.target.value)}
+              >
+                {listUnits.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {filteredQuestions.length === 0 && (
+            <p style={{color: '#7f8c8d', textAlign: 'center', padding: '20px'}}>這個篩選條件下還沒有題目喔！</p>
+          )}
+
+          {filteredQuestions.map((q) => (
             <div key={q.id} style={{padding: '15px', border: '4px solid #4a4a4a', marginBottom: '15px', backgroundColor:'#fff', textAlign: 'left'}}>
-               <div style={{display:'flex', justifyContent:'space-between'}}>
-                 <span style={{fontWeight:'bold', fontSize:'1.2rem'}}>[{q.subject || '未分類'}] {q.content}</span>
+               <div style={{display:'flex', justifyContent:'space-between', flexWrap: 'wrap', gap: '10px'}}>
+                 <span style={{fontWeight:'bold', fontSize:'1.2rem'}}>
+                   [{q.subject || '未分類'}]
+                   <span style={{backgroundColor: '#6e85b7', color: '#fff', fontSize: '0.9rem', padding: '2px 8px', borderRadius: '10px', margin: '0 8px'}}>{q.unit || '未分類'}</span>
+                   {q.content}
+                 </span>
                  <button className="pixel-btn btn-red" style={{padding:'5px'}} onClick={()=>handleDelete(q.id)}>刪除</button>
                </div>
                {q.imageUrl && <img src={q.imageUrl} alt="圖" style={{maxHeight:'100px', marginTop:'10px'}} />}

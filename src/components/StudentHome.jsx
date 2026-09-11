@@ -127,7 +127,9 @@ const StudentHome = ({ user, onStartQuiz }) => {
   const [showMathGame, setShowMathGame] = useState(false);
   
   const [selectedSubject, setSelectedSubject] = useState('國語');
-  const [quizMode, setQuizMode] = useState('formal'); 
+  const [selectedUnit, setSelectedUnit] = useState('ALL'); // 🌟 新增：選擇的單元/課別，'ALL' 代表綜合測驗（全部單元混合）
+  const [availableUnits, setAvailableUnits] = useState([]); // 🌟 新增：目前選擇科目下，老師已建立的單元清單
+  const [quizMode, setQuizMode] = useState('formal');
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [sysSettings, setSysSettings] = useState({ cooldownMinutes: 60, coinMultiplier: 1, practiceReward: 0 });
 
@@ -239,6 +241,24 @@ const StudentHome = ({ user, onStartQuiz }) => {
     return () => clearInterval(timer);
   }, [timeRemaining]);
 
+  // 🌟 依選擇的科目，抓取老師已建立的單元/課別清單，讓學生可以挑選要考哪個單元
+  useEffect(() => {
+    const loadUnits = async () => {
+      try {
+        const q = query(collection(db, "questions"), where("subject", "==", selectedSubject));
+        const snap = await getDocs(q);
+        const units = new Set();
+        snap.forEach(docSnap => units.add(docSnap.data().unit || '未分類'));
+        setAvailableUnits([...units].sort());
+      } catch (error) {
+        console.error("讀取單元清單失敗", error);
+        setAvailableUnits([]);
+      }
+      setSelectedUnit('ALL'); // 🌟 切換科目時重設為綜合測驗
+    };
+    loadUnits();
+  }, [selectedSubject]);
+
   const handleBuy = async (item) => {
     if (userData.coins < item.price) return alert("⚠️ 金幣不足！");
     if (window.confirm(`確定花費 ${item.price} 購買「${item.name}」？`)) {
@@ -259,7 +279,7 @@ const StudentHome = ({ user, onStartQuiz }) => {
   };
 
   const handleStartClick = () => {
-    onStartQuiz({ subject: selectedSubject, mode: quizMode, settings: sysSettings });
+    onStartQuiz({ subject: selectedSubject, unit: selectedUnit, mode: quizMode, settings: sysSettings });
   };
 
   if (isLoading || !userData) return <div style={styles.container}><h2>⏳ 載入中...</h2></div>;
@@ -330,6 +350,18 @@ const StudentHome = ({ user, onStartQuiz }) => {
               <label style={styles.radioLabel}>
                 <input type="radio" checked={selectedSubject === '數學'} onChange={() => setSelectedSubject('數學')} /> 數學
               </label>
+            </div>
+
+            <h4>📖 選擇單元／課別</h4>
+            <div style={{...styles.radioGroup, padding: '10px'}}>
+              <select
+                style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px', fontSize: '1.1rem', width: '100%'}}
+                value={selectedUnit}
+                onChange={(e) => setSelectedUnit(e.target.value)}
+              >
+                <option value="ALL">🔀 綜合測驗（全部單元混合出題）</option>
+                {availableUnits.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
             </div>
 
             <h4>🎮 選擇模式</h4>
