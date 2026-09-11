@@ -117,28 +117,37 @@ const DEFAULT_BASE_URL = baseBearImg;
 const playSound = (type) => {
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    
+
+    // 🌟 以 Web Audio API 即時合成音效（無版權疑慮，無需外部音檔）
+    const beep = (freqStart, freqEnd, gainPeak, duration, waveType, startOffset = 0) => {
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.type = waveType;
+      const startTime = audioCtx.currentTime + startOffset;
+      oscillator.frequency.setValueAtTime(freqStart, startTime);
+      if (freqEnd !== freqStart) {
+        oscillator.frequency.exponentialRampToValueAtTime(freqEnd, startTime + duration);
+      }
+      gainNode.gain.setValueAtTime(gainPeak, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+
     if (type === 'add') {
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
-      oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); 
-      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.3);
-    } else {
-      oscillator.type = 'triangle';
-      oscillator.frequency.setValueAtTime(220, audioCtx.currentTime); 
-      oscillator.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.2); 
-      gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.3);
+      // 🌟 加分音量提高 (0.3 -> 0.6)
+      beep(880, 1760, 0.6, 0.3, 'sine');
+    } else if (type === 'deduct') {
+      // 🌟 扣分音量提高 (0.5 -> 0.8)
+      beep(220, 110, 0.8, 0.3, 'triangle');
+    } else if (type === 'tick') {
+      // 🌟 倒數計時最後 3 秒的滴答聲
+      beep(1200, 1200, 0.5, 0.12, 'square');
+    } else if (type === 'alarm') {
+      // 🌟 倒數結束的鬧鈴聲（連續三聲高音）
+      [0, 0.3, 0.6].forEach((offset) => beep(1046.5, 1046.5, 0.7, 0.25, 'square', offset));
     }
   } catch (e) {
     console.log('音效播放失敗或被瀏覽器阻擋');
@@ -173,8 +182,9 @@ const TeacherDashboard = ({ user }) => {
   const [dojoMode, setDojoMode] = useState('list');
   const [newStudentName, setNewStudentName] = useState(''); 
   const [newStudentEmail, setNewStudentEmail] = useState('');
-  const [editingNameId, setEditingNameId] = useState(null); 
+  const [editingNameId, setEditingNameId] = useState(null);
   const [isDeleteMode, setIsDeleteMode] = useState(false); // 🌟 新增：刪除模式開關狀態
+  const [absentIds, setAbsentIds] = useState(new Set()); // 🌟 新增：今日缺席學生名單（僅本次登入畫面暫存，不寫入資料庫）
 
   // --- 座位表自訂狀態 ---
   const [gridCols, setGridCols] = useState(6);
@@ -222,7 +232,15 @@ const TeacherDashboard = ({ user }) => {
     let interval = null;
     if (timerActive && timeLeft > 0) {
       interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
+        setTimeLeft((prev) => {
+          const next = prev - 1;
+          if (next > 0 && next <= 3) {
+            playSound('tick'); // 🌟 最後 3 秒滴答提示
+          } else if (next === 0) {
+            playSound('alarm'); // 🌟 時間到鬧鈴提示
+          }
+          return next;
+        });
       }, 1000);
     } else if (timeLeft === 0 && timerActive) {
       setTimerActive(false);
@@ -297,38 +315,49 @@ const TeacherDashboard = ({ user }) => {
   const handleUpdateCoins = async (targetId, amount) => {
     const isAdd = amount > 0;
     const animType = isAdd ? 'dojo-add' : 'dojo-deduct';
-    const animText = isAdd ? `+${amount}` : `${amount}`; 
+    const animText = isAdd ? `+${amount}` : `${amount}`;
 
     playSound(isAdd ? 'add' : 'deduct');
 
+    // 🌟 全班加扣分時，自動跳過已登記缺席的學生
+    const targetStudents = targetId === 'all'
+      ? students.filter(st => !absentIds.has(st.id))
+      : students.filter(st => st.id === targetId);
+
     let newAnims = {};
-    if (targetId === 'all') {
-      students.forEach(st => {
-        newAnims[st.id] = { text: animText, type: animType, key: Date.now() + Math.random() };
-      });
-    } else {
-      newAnims[targetId] = { text: animText, type: animType, key: Date.now() };
-    }
+    targetStudents.forEach(st => {
+      newAnims[st.id] = { text: animText, type: animType, key: Date.now() + Math.random() };
+    });
     setFloatingAnims(prev => ({ ...prev, ...newAnims }));
 
-    if (targetId === 'all') {
-      const promises = students.map(st => {
-        const currentCoins = st.coins || 0;
-        const newCoins = Math.max(0, currentCoins + amount); 
-        return updateDoc(doc(db, "users", st.id), { coins: newCoins });
-      });
-      await Promise.all(promises);
-    } else {
-      const st = students.find(s => s.id === targetId);
+    const promises = targetStudents.map(st => {
       const currentCoins = st.coins || 0;
       const newCoins = Math.max(0, currentCoins + amount);
-      await updateDoc(doc(db, "users", targetId), { coins: newCoins });
-    }
+      return updateDoc(doc(db, "users", st.id), { coins: newCoins });
+    });
+    await Promise.all(promises);
 
     setTimeout(() => {
       setFloatingAnims({});
     }, 1000);
   };
+
+  // -------------------------
+  // 🌟 缺席登記（全班加扣分時會自動跳過）
+  // -------------------------
+  const handleToggleAbsent = (studentId) => {
+    setAbsentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(studentId)) {
+        next.delete(studentId);
+      } else {
+        next.add(studentId);
+      }
+      return next;
+    });
+  };
+
+  const handleClearAbsent = () => setAbsentIds(new Set());
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -413,15 +442,16 @@ const TeacherDashboard = ({ user }) => {
     const accItem = SHOP_ITEMS.find(item => item.id === accId);
     const displayName = st.name || st.displayName || '未命名';
     const [editVal, setEditVal] = useState(displayName);
+    const isAbsent = absentIds.has(st.id); // 🌟 是否已登記缺席
 
     return (
-      <div 
-        className="pixel-box" 
+      <div
+        className="pixel-box"
         style={{
-          ...styles.dojoCard, 
+          ...styles.dojoCard,
           padding: hideButtons ? '10px' : '15px',
-          // 🌟 進入刪除模式時，卡片外框變成紅色虛線，鼠標變成手指
-          border: isDeleteMode ? '4px dashed #e74c3c' : '4px solid #4a4a4a',
+          // 🌟 進入刪除模式時，卡片外框變成紅色虛線；缺席時外框變灰色虛線
+          border: isDeleteMode ? '4px dashed #e74c3c' : (isAbsent ? '4px dashed #95a5a6' : '4px solid #4a4a4a'),
           cursor: isDeleteMode ? 'pointer' : (isDraggable ? 'grab' : 'default'),
           opacity: isDeleteMode ? 0.85 : 1
         }}
@@ -441,14 +471,37 @@ const TeacherDashboard = ({ user }) => {
           </div>
         )}
 
+        {/* 🌟 缺席登記按鈕：點擊切換該生是否缺席（灰色顯示，全班加扣分時自動跳過） */}
+        {!isDeleteMode && !hideButtons && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleToggleAbsent(st.id); }}
+            title={isAbsent ? '點擊恢復為到班' : '點擊登記為缺席'}
+            style={{
+              position: 'absolute', top: '-10px', left: '-10px', width: '30px', height: '30px',
+              backgroundColor: isAbsent ? '#95a5a6' : '#fff', color: isAbsent ? '#fff' : '#4a4a4a',
+              border: '3px solid #4a4a4a', borderRadius: '50%',
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
+              fontSize: '0.9rem', cursor: 'pointer', zIndex: 10, boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+            }}
+          >
+            {isAbsent ? '🚫' : '🙋'}
+          </button>
+        )}
+
+        {isAbsent && !isDeleteMode && (
+          <div style={{ position: 'absolute', top: '8px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#7f8c8d', color: '#fff', fontSize: '0.75rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', zIndex: 5 }}>
+            缺席
+          </div>
+        )}
+
         {floatingAnims[st.id] && (
           <div key={floatingAnims[st.id].key} className={`dojo-anim ${floatingAnims[st.id].type}`}>
             {floatingAnims[st.id].text}
           </div>
         )}
         
-        {/* 🌟 讓內部元素在刪除模式下不干擾點擊 */}
-        <div style={{ pointerEvents: isDeleteMode ? 'none' : 'auto' }}>
+        {/* 🌟 讓內部元素在刪除模式下不干擾點擊；缺席學生的頭像/姓名/金幣區塊變灰 */}
+        <div style={{ pointerEvents: isDeleteMode ? 'none' : 'auto', filter: isAbsent ? 'grayscale(1)' : 'none', opacity: isAbsent ? 0.6 : 1 }}>
           <div style={{ position: 'relative', width: hideButtons ? '60px' : '80px', height: hideButtons ? '60px' : '80px', margin: '0 auto 10px', backgroundColor: '#e8e8e8', borderRadius: '15px', border: '3px solid #6e85b7', overflow: 'hidden' }}>
             <img src={baseItem ? baseItem.imageUrl : DEFAULT_BASE_URL} alt="base" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', top: 0, left: 0 }} />
             {accItem && <img src={accItem.imageUrl} alt="acc" style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, zIndex: 2 }} />}
@@ -703,6 +756,18 @@ const TeacherDashboard = ({ user }) => {
               >
                 {isDeleteMode ? '退出刪除模式' : '🗑️ 刪除學生'}
               </button>
+
+              {/* 🌟 缺席名單重設按鈕：新的一堂課開始時，一鍵讓所有學生恢復到班狀態 */}
+              {absentIds.size > 0 && (
+                <button
+                  className="pixel-btn btn-gray"
+                  style={{ color: '#4a4a4a', padding: '10px' }}
+                  onClick={handleClearAbsent}
+                  title="清除所有缺席登記，讓全部學生恢復到班狀態"
+                >
+                  🔄 重設出席（{absentIds.size} 人缺席）
+                </button>
+              )}
 
               <form onSubmit={handleAddStudent} style={{display: 'flex', gap: '5px', marginLeft: '10px', alignItems: 'center'}}>
                 <input 
