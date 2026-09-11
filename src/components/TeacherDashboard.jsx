@@ -178,7 +178,10 @@ const TeacherDashboard = ({ user }) => {
   
   // --- 分析狀態 ---
   const [analyticsData, setAnalyticsData] = useState([]);
-  const [studentAnalytics, setStudentAnalytics] = useState([]); 
+  const [studentAnalytics, setStudentAnalytics] = useState([]);
+  const [sessionRecords, setSessionRecords] = useState([]); // 🌟 新增：每次測驗的場次紀錄（初測/最終分數）
+  const [analyticsFilterSubject, setAnalyticsFilterSubject] = useState('全部'); // 🌟 新增：數據分析的科目篩選
+  const [analyticsFilterUnit, setAnalyticsFilterUnit] = useState('全部'); // 🌟 新增：數據分析的單元篩選
 
   // --- Dojo 狀態 ---
   const [students, setStudents] = useState([]);
@@ -576,7 +579,12 @@ const TeacherDashboard = ({ user }) => {
       logsSnapshot.forEach((doc) => {
         const data = doc.data();
         if (!stats[data.questionId]) {
-          stats[data.questionId] = { content: data.questionContent, total: 0, wrong: 0 };
+          stats[data.questionId] = {
+            content: data.questionContent,
+            subject: data.subject || '未分類',
+            unit: data.unit || '未分類',
+            total: 0, wrong: 0
+          };
         }
         stats[data.questionId].total += 1;
         if (!data.isCorrectFirstTry) {
@@ -606,8 +614,15 @@ const TeacherDashboard = ({ user }) => {
         const item = stStats[uid];
         return { ...item, accuracyRate: Math.round((item.correct / item.total) * 100) || 0 };
       });
-      stArray.sort((a, b) => b.accuracyRate - a.accuracyRate); 
+      stArray.sort((a, b) => b.accuracyRate - a.accuracyRate);
       setStudentAnalytics(stArray);
+
+      // 🌟 測驗場次紀錄：每一次考試的初測分數、最終分數（依時間新到舊排序）
+      const sessionsSnap = await getDocs(collection(db, "quiz_sessions"));
+      let sessions = [];
+      sessionsSnap.forEach(docSnap => sessions.push({ id: docSnap.id, ...docSnap.data() }));
+      sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setSessionRecords(sessions);
 
     } catch (error) {
       console.error("讀取數據失敗:", error);
@@ -662,10 +677,14 @@ const TeacherDashboard = ({ user }) => {
         const qIdx = headers.indexOf('題目');
         const ansIdx = headers.indexOf('正確答案');
         const opt1Idx = headers.indexOf('選項一');
-        const expIdx = headers.indexOf('詳解'); 
-        
+        // 🌟 依欄位「名稱」找選項二/三/四，欄位順序打亂也不會抓錯；找不到才退回用選項一往右數的舊邏輯
+        const opt2Idx = headers.indexOf('選項二') !== -1 ? headers.indexOf('選項二') : opt1Idx + 1;
+        const opt3Idx = headers.indexOf('選項三') !== -1 ? headers.indexOf('選項三') : opt1Idx + 2;
+        const opt4Idx = headers.indexOf('選項四') !== -1 ? headers.indexOf('選項四') : opt1Idx + 3;
+        const expIdx = headers.indexOf('詳解');
+
         if (qIdx === -1 || ansIdx === -1 || opt1Idx === -1) {
-          return alert('CSV 格式錯誤！必須包含「題目」、「正確答案」、「選項一」等欄位標題。');
+          return alert('CSV 格式錯誤！必須包含「題目」、「正確答案」、「選項一」等欄位標題。可點擊「下載範例 CSV」取得正確格式。');
         }
 
         let successCount = 0;
@@ -673,13 +692,15 @@ const TeacherDashboard = ({ user }) => {
 
         for (let i = 1; i < lines.length; i++) {
           const row = parseCSVRow(lines[i]);
-          if (!row[qIdx] || !row[ansIdx]) continue; 
+          if (!row[qIdx] || !row[ansIdx]) continue;
 
           const qContent = row[qIdx].trim();
-          const qAns = answerMap[row[ansIdx].trim()] || 'A';
+          const rawAns = row[ansIdx].trim().toUpperCase();
+          // 🌟 正確答案欄位同時支援填「1/2/3/4」或直接填「A/B/C/D」
+          const qAns = answerMap[rawAns] || (['A', 'B', 'C', 'D'].includes(rawAns) ? rawAns : 'A');
           const qOpt = {
-            A: row[opt1Idx]?.trim() || '', B: row[opt1Idx + 1]?.trim() || '',
-            C: row[opt1Idx + 2]?.trim() || '', D: row[opt1Idx + 3]?.trim() || ''
+            A: row[opt1Idx]?.trim() || '', B: row[opt2Idx]?.trim() || '',
+            C: row[opt3Idx]?.trim() || '', D: row[opt4Idx]?.trim() || ''
           };
           const qExp = expIdx !== -1 ? row[expIdx]?.trim() : '';
 
@@ -700,6 +721,28 @@ const TeacherDashboard = ({ user }) => {
       }
     };
     reader.readAsText(file, 'UTF-8');
+  };
+
+  // 🌟 產生並下載範例 CSV，讓老師可以直接照著格式填寫題目
+  const handleDownloadSampleCSV = () => {
+    const sampleRows = [
+      ['題目', '正確答案', '選項一', '選項二', '選項三', '選項四', '詳解'],
+      ['5 + 7 等於多少？', '2', '10', '12', '14', '16', '別忘了進位，5 + 7 = 12 喔！'],
+      ['下列何者是「快樂」的正確注音？', '1', 'ㄎㄨㄞˋ ㄌㄜˋ', 'ㄎㄨㄞˋ ㄌㄜˊ', 'ㄎㄨㄞ ㄌㄜ˙', 'ㄎㄨㄞˋ ㄌㄟˋ', '「樂」在這裡念輕聲的ㄌㄜ˙喔！']
+    ];
+    const csvContent = sampleRows
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\r\n');
+    // 🌟 開頭加上 UTF-8 BOM，確保用 Excel 開啟時中文不會變亂碼
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '題庫匯入範例.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handlePaste = (e) => {
@@ -745,6 +788,24 @@ const TeacherDashboard = ({ user }) => {
   const filteredQuestions = questionsList.filter(q =>
     (filterSubject === '全部' || (q.subject || '未分類') === filterSubject) &&
     (filterUnit === '全部' || (q.unit || '未分類') === filterUnit)
+  );
+
+  // 🌟 數據分析的科目／單元篩選（用於「數據分析」分頁的場次紀錄與錯題排行榜）
+  const analyticsSubjects = ['全部', ...new Set([
+    ...analyticsData.map(d => d.subject || '未分類'),
+    ...sessionRecords.map(s => s.subject || '未分類')
+  ])];
+  const analyticsUnits = ['全部', ...new Set([
+    ...analyticsData.filter(d => analyticsFilterSubject === '全部' || (d.subject || '未分類') === analyticsFilterSubject).map(d => d.unit || '未分類'),
+    ...sessionRecords.filter(s => analyticsFilterSubject === '全部' || (s.subject || '未分類') === analyticsFilterSubject).map(s => s.unit || '未分類')
+  ])];
+  const filteredAnalyticsData = analyticsData.filter(d =>
+    (analyticsFilterSubject === '全部' || (d.subject || '未分類') === analyticsFilterSubject) &&
+    (analyticsFilterUnit === '全部' || (d.unit || '未分類') === analyticsFilterUnit)
+  );
+  const filteredSessionRecords = sessionRecords.filter(s =>
+    (analyticsFilterSubject === '全部' || (s.subject || '未分類') === analyticsFilterSubject) &&
+    (analyticsFilterUnit === '全部' || (s.unit || '未分類') === analyticsFilterUnit)
   );
 
   return (
@@ -898,6 +959,18 @@ const TeacherDashboard = ({ user }) => {
       {activeTab === 'import' && (
         <div className="pixel-card" style={styles.card}>
           <h3 style={styles.sectionTitle}>📂 匯入題庫 CSV</h3>
+
+          {/* 🌟 CSV 格式說明 + 範例檔下載，避免老師猜欄位格式 */}
+          <div style={{padding: '15px', backgroundColor: '#e8f4f8', border: '3px dashed #6e85b7', borderRadius: '10px', marginBottom: '20px', textAlign: 'left'}}>
+            <p style={{fontWeight: 'bold', color: '#2c3e50', marginBottom: '8px'}}>📋 CSV 欄位格式說明：</p>
+            <p style={{margin: '4px 0'}}>必須包含以下欄位標題（第一列）：<strong>題目、正確答案、選項一、選項二、選項三、選項四</strong>，「詳解」欄位選填。</p>
+            <p style={{margin: '4px 0'}}>「正確答案」欄位可填 <strong>1/2/3/4</strong>（對應選項一~四）或直接填 <strong>A/B/C/D</strong>。</p>
+            <p style={{margin: '4px 0'}}>檔案請存成 <strong>CSV（逗號分隔）UTF-8</strong> 格式，不確定的話直接下載範例檔照著填最保險！</p>
+            <button type="button" className="pixel-btn btn-yellow" style={{padding: '8px 15px', marginTop: '10px', color: '#4a4a4a'}} onClick={handleDownloadSampleCSV}>
+              📥 下載範例 CSV
+            </button>
+          </div>
+
           <div style={{...styles.inputGroup, textAlign: 'left', marginBottom: '20px'}}>
             <label style={styles.label}>請選擇科目：</label>
             <select style={styles.input} value={importSubject} onChange={(e) => setImportSubject(e.target.value)}>
@@ -1048,7 +1121,74 @@ const TeacherDashboard = ({ user }) => {
       {/* --- 🌟 學習數據分析 --- */}
       {activeTab === 'analytics' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
+
+          {/* 🌟 科目／單元篩選器，套用到下方場次紀錄與錯題排行榜 */}
+          <div className="pixel-card" style={{...styles.card, padding: '15px'}}>
+            <div style={{display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center'}}>
+              <span style={{fontWeight: 'bold', color: '#4a4a4a'}}>🔍 篩選：</span>
+              <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                <label style={{fontWeight: 'bold', color: '#4a4a4a'}}>科目：</label>
+                <select
+                  style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px'}}
+                  value={analyticsFilterSubject}
+                  onChange={(e) => { setAnalyticsFilterSubject(e.target.value); setAnalyticsFilterUnit('全部'); }}
+                >
+                  {analyticsSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                <label style={{fontWeight: 'bold', color: '#4a4a4a'}}>單元／課別：</label>
+                <select
+                  style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px'}}
+                  value={analyticsFilterUnit}
+                  onChange={(e) => setAnalyticsFilterUnit(e.target.value)}
+                >
+                  {analyticsUnits.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="pixel-card" style={styles.card}>
+            <h3 style={styles.sectionTitle}>📅 測驗場次紀錄（初測 vs 最終分數）</h3>
+            <p style={{fontSize:'1.1rem', color:'#7f8c8d'}}>每一列代表一次完整的測驗（含最多兩次作答機會），可看出學生經過複習後的進步幅度。</p>
+            <div style={{overflowX: 'auto'}}>
+              <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize:'1.1rem', backgroundColor:'#fff', border:'4px solid #4a4a4a'}}>
+                <thead>
+                  <tr style={{backgroundColor: '#8ca279', color: '#fff', textAlign: 'left'}}>
+                    <th style={styles.th}>時間</th>
+                    <th style={styles.th}>學生</th>
+                    <th style={styles.th}>科目</th>
+                    <th style={styles.th}>單元</th>
+                    <th style={styles.th}>初次分數</th>
+                    <th style={styles.th}>最終分數</th>
+                    <th style={styles.th}>獲得金幣</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSessionRecords.map((s) => (
+                    <tr key={s.id} style={{borderBottom: '2px solid #ccc'}}>
+                      <td style={styles.td}>{s.timestamp ? new Date(s.timestamp).toLocaleString('zh-TW') : '-'}</td>
+                      <td style={styles.td}>{s.userName || '未知學生'}</td>
+                      <td style={styles.td}>{s.subject || '未分類'}</td>
+                      <td style={styles.td}>{s.unit || '未分類'}</td>
+                      <td style={styles.td}>{s.firstTryScore} / {s.totalQuestions}</td>
+                      <td style={styles.td}>
+                        <span style={{color: s.finalScore === s.totalQuestions ? '#2ecc71' : '#e74c3c', fontWeight: 'bold'}}>
+                          {s.finalScore} / {s.totalQuestions}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{s.coinsEarned ?? '-'}</td>
+                    </tr>
+                  ))}
+                  {filteredSessionRecords.length === 0 && (
+                    <tr><td colSpan="7" style={{padding: '20px', textAlign: 'center'}}>這個篩選條件下還沒有測驗紀錄</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="pixel-card" style={styles.card}>
             <h3 style={styles.sectionTitle}>🧑‍🎓 各生測驗情形</h3>
             <p style={{fontSize:'1.1rem', color:'#7f8c8d'}}>掌握每位學生的總作答量與整體答對率。</p>
@@ -1088,6 +1228,7 @@ const TeacherDashboard = ({ user }) => {
             <table style={{width: '100%', borderCollapse: 'collapse', marginTop: '10px', fontSize:'1.2rem', backgroundColor:'#fff', border:'4px solid #4a4a4a'}}>
               <thead>
                 <tr style={{backgroundColor: '#6e85b7', color: '#fff', textAlign: 'left'}}>
+                  <th style={styles.th}>科目／單元</th>
                   <th style={styles.th}>題目內容</th>
                   <th style={styles.th}>作答次數</th>
                   <th style={styles.th}>答錯次數</th>
@@ -1095,8 +1236,9 @@ const TeacherDashboard = ({ user }) => {
                 </tr>
               </thead>
               <tbody>
-                {analyticsData.map((data, idx) => (
+                {filteredAnalyticsData.map((data, idx) => (
                   <tr key={idx} style={{borderBottom: '2px solid #ccc', backgroundColor: data.errorRate > 50 ? '#fcebeb' : '#fff'}}>
+                    <td style={styles.td}>[{data.subject || '未分類'}] {data.unit || '未分類'}</td>
                     <td style={styles.td}>{data.content || '(圖片題)'}</td>
                     <td style={styles.td}>{data.total}</td>
                     <td style={styles.td}><span style={{color: '#c0392b', fontWeight: 'bold'}}>{data.wrong}</span></td>
@@ -1110,8 +1252,8 @@ const TeacherDashboard = ({ user }) => {
                     </td>
                   </tr>
                 ))}
-                {analyticsData.length === 0 && (
-                  <tr><td colSpan="4" style={{padding: '20px', textAlign: 'center'}}>尚無測驗記錄</td></tr>
+                {filteredAnalyticsData.length === 0 && (
+                  <tr><td colSpan="5" style={{padding: '20px', textAlign: 'center'}}>這個篩選條件下還沒有測驗記錄</td></tr>
                 )}
               </tbody>
             </table>
