@@ -5,6 +5,22 @@
   font-weight: normal;
   font-style: normal;
 }
+
+/* =========================================
+   🌟 全域 CSS Reset
+   專案中大量元件用 width:'100%' 搭配 padding/border，
+   若沒有 border-box，實際渲染寬度會超出容器（padding+border 疊加），
+   在手機斷點下最明顯會造成版面整體偏移、左右留白不對稱。
+========================================= */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
 /* =========================================
    🎮 專屬低彩度像素復古風 UI 設定
 ========================================= */
