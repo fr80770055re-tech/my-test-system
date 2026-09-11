@@ -322,7 +322,11 @@ const StudentHome = ({ user, onStartQuiz }) => {
       `}</style>
 
       <div style={styles.header}>
-        <h2 style={{ color: '#4a4a4a' }}>你好，{userData.name}！</h2>
+        <h2 style={{ color: '#4a4a4a', margin: 0 }}>
+          你好，
+          <br />
+          <span style={{ whiteSpace: 'nowrap' }}>{userData.name}！</span>
+        </h2>
         <div className="pixel-btn btn-yellow" style={styles.coinBadge}>
           <img src={moneyIconImg} alt="money" style={styles.moneyIconLarge} /> 
           <span>目前擁有：{userData.coins}</span>
