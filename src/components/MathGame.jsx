@@ -63,10 +63,12 @@ const MathGame = ({ user, userData, onBack }) => {
     return () => clearInterval(timerRef.current);
   }, [gameState, timeLeft]);
 
-  // 處理作答 (為了講求速度，點錯不扣分，直接換下一題)
+  // 處理作答 (答對加一分，答錯倒扣一分，避免亂點蒙混過關)
   const handleAnswer = (selected) => {
     if (selected === currentQ.answer) {
       setScore((prev) => prev + 1);
+    } else {
+      setScore((prev) => Math.max(0, prev - 1));
     }
     generateQuestion(); // 無論對錯，立刻換題保持節奏
   };
@@ -188,14 +190,14 @@ const styles = {
   btnGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
   actionBtn: { padding: '15px', fontSize: '1.5rem', width: '100%' },
   
-  headerInfo: { display: 'flex', justifyContent: 'space-between', fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '20px' },
-  timerBox: { padding: '10px', backgroundColor: '#e8e8e8', border: '4px solid #4a4a4a' },
-  scoreBox: { padding: '10px', backgroundColor: '#e8e8e8', border: '4px solid #4a4a4a', color: '#8ca279' },
+  headerInfo: { display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: 'clamp(1rem, 4.2vw, 1.5rem)', fontWeight: 'bold', marginBottom: '20px' },
+  timerBox: { padding: '10px', whiteSpace: 'nowrap', backgroundColor: '#e8e8e8', border: '4px solid #4a4a4a' },
+  scoreBox: { padding: '10px', whiteSpace: 'nowrap', backgroundColor: '#e8e8e8', border: '4px solid #4a4a4a', color: '#8ca279' },
   
-  questionDisplay: { fontSize: '6rem', fontWeight: 'bold', color: '#2c3e50', padding: '40px 0', margin: '20px 0', backgroundColor: '#fff', border: '8px solid #4a4a4a' },
+  questionDisplay: { fontSize: 'clamp(2rem, 10vw, 6rem)', whiteSpace: 'nowrap', fontWeight: 'bold', color: '#2c3e50', padding: '40px 0', margin: '20px 0', backgroundColor: '#fff', border: '8px solid #4a4a4a' },
   
   optionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' },
-  optionBtnNum: { fontSize: '3.5rem', padding: '20px 0', fontFamily: 'Arial, sans-serif' }, 
+  optionBtnNum: { fontSize: 'clamp(2rem, 9vw, 3.5rem)', padding: '20px 0', fontFamily: 'Arial, sans-serif' }, 
   
   resultBox: { padding: '30px', backgroundColor: '#e8e8e8', margin: '20px 0', fontSize: '1.4rem', color: '#4a4a4a', lineHeight: '1.8' },
   moneyIcon: { height: '30px', objectFit: 'contain', verticalAlign: 'middle' },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, query, where } from 'firebase/firestore'; 
+import { collection, addDoc, getDocs, deleteDoc, doc, getDoc, setDoc, updateDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../firebase'; 
 
 // =========================================================================
@@ -183,6 +183,12 @@ const TeacherDashboard = ({ user }) => {
   const [analyticsFilterSubject, setAnalyticsFilterSubject] = useState('全部'); // 🌟 新增：數據分析的科目篩選
   const [analyticsFilterUnit, setAnalyticsFilterUnit] = useState('全部'); // 🌟 新增：數據分析的單元篩選
 
+  // --- 系統設定狀態（金幣倍率／冷卻時間／練習獎勵，寫入 settings/system） ---
+  const [sysSettings, setSysSettings] = useState({ cooldownMinutes: 60, coinMultiplier: 1, practiceReward: 0 });
+  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
   // --- Dojo 狀態 ---
   const [students, setStudents] = useState([]);
   const [floatingAnims, setFloatingAnims] = useState({});
@@ -231,6 +237,8 @@ const TeacherDashboard = ({ user }) => {
       fetchQuestions();
     } else if (activeTab === 'analytics') {
       fetchAnalytics();
+    } else if (activeTab === 'settings') {
+      fetchSettings();
     }
     return () => unsubscribe();
   }, [activeTab]);
@@ -637,6 +645,34 @@ const TeacherDashboard = ({ user }) => {
     setQuestionsList(fetched);
   };
 
+  // 🌟 讀取／儲存系統設定（正式測驗金幣倍率、冷卻時間、練習模式獎勵）
+  const fetchSettings = async () => {
+    setIsLoadingSettings(true);
+    setSettingsSaved(false);
+    try {
+      const snap = await getDoc(doc(db, "settings", "system"));
+      if (snap.exists()) {
+        setSysSettings(prev => ({ ...prev, ...snap.data() }));
+      }
+    } catch (error) {
+      console.error("讀取系統設定失敗", error);
+    }
+    setIsLoadingSettings(false);
+  };
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    setSettingsSaved(false);
+    try {
+      await setDoc(doc(db, "settings", "system"), sysSettings, { merge: true });
+      setSettingsSaved(true);
+    } catch (error) {
+      console.error("儲存系統設定失敗", error);
+      alert("儲存失敗，請稍後再試一次！");
+    }
+    setIsSavingSettings(false);
+  };
+
   const handleDelete = async (id) => {
     if (window.confirm("確定刪除這道題目？")) {
       await deleteDoc(doc(db, "questions", id));
@@ -832,6 +868,7 @@ const TeacherDashboard = ({ user }) => {
         <button className={`pixel-btn ${activeTab==='add' ? 'btn-blue' : 'btn-gray'}`} style={styles.tabBtn} onClick={()=>setActiveTab('add')}>➕ 單題圖文新增</button>
         <button className={`pixel-btn ${activeTab==='list' ? 'btn-blue' : 'btn-gray'}`} style={styles.tabBtn} onClick={()=>setActiveTab('list')}>📚 題庫總覽</button>
         <button className={`pixel-btn ${activeTab==='analytics' ? 'btn-yellow' : 'btn-gray'}`} style={{...styles.tabBtn, color: activeTab==='analytics'?'#4a4a4a':''}} onClick={()=>setActiveTab('analytics')}>📊 數據分析</button>
+        <button className={`pixel-btn ${activeTab==='settings' ? 'btn-yellow' : 'btn-gray'}`} style={{...styles.tabBtn, color: activeTab==='settings'?'#4a4a4a':''}} onClick={()=>setActiveTab('settings')}>⚙️ 系統設定</button>
       </div>
 
       {/* --- 🌟 Dojo 班級經營區塊 --- */}
@@ -1258,6 +1295,55 @@ const TeacherDashboard = ({ user }) => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* --- 🌟 系統設定 --- */}
+      {activeTab === 'settings' && (
+        <div className="pixel-card" style={styles.card}>
+          <h3 style={styles.sectionTitle}>⚙️ 系統設定</h3>
+
+          {isLoadingSettings ? (
+            <p style={{textAlign: 'center', padding: '20px'}}>⏳ 讀取設定中...</p>
+          ) : (
+            <>
+              <div style={{...styles.inputGroup, textAlign: 'left'}}>
+                <label style={styles.label}>正式測驗金幣倍率（答對全部題目時：最高可得 {Math.round(10 * (sysSettings.coinMultiplier || 1))} 金幣）：</label>
+                <input
+                  type="number" min="0.5" max="3" step="0.5"
+                  style={styles.input}
+                  value={sysSettings.coinMultiplier}
+                  onChange={(e) => setSysSettings({ ...sysSettings, coinMultiplier: parseFloat(e.target.value) || 0 })}
+                />
+                <p style={{fontSize: '1rem', color: '#7f8c8d', margin: '8px 0 0'}}>基礎滿分獎勵是 10 金幣，倍率上限 3 倍，也就是正式測驗滿分最高可以拿到 30 金幣。</p>
+              </div>
+
+              <div style={{...styles.inputGroup, textAlign: 'left'}}>
+                <label style={styles.label}>正式測驗冷卻時間（分鐘，避免學生無限次重考刷分）：</label>
+                <input
+                  type="number" min="0" step="1"
+                  style={styles.input}
+                  value={sysSettings.cooldownMinutes}
+                  onChange={(e) => setSysSettings({ ...sysSettings, cooldownMinutes: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+
+              <div style={{...styles.inputGroup, textAlign: 'left'}}>
+                <label style={styles.label}>練習模式獎勵（金幣，設為 0 代表練習模式不發獎勵）：</label>
+                <input
+                  type="number" min="0" step="1"
+                  style={styles.input}
+                  value={sysSettings.practiceReward}
+                  onChange={(e) => setSysSettings({ ...sysSettings, practiceReward: parseInt(e.target.value) || 0 })}
+                />
+              </div>
+
+              <button className="pixel-btn btn-blue" style={{width: '100%', padding: '15px', fontSize: '1.2rem'}} onClick={saveSettings} disabled={isSavingSettings}>
+                {isSavingSettings ? '⏳ 儲存中...' : '💾 儲存設定'}
+              </button>
+              {settingsSaved && <p style={{color: '#8ca279', fontWeight: 'bold', marginTop: '10px'}}>✅ 設定已儲存！</p>}
+            </>
+          )}
         </div>
       )}
 

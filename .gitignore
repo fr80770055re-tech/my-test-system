@@ -13,6 +13,16 @@ dist-ssr
 *.local
 .firebase
 
+# Firebase / GCP 憑證，絕對不能進版控（尤其這個 repo 在 GitHub 上是公開的！）
+serviceAccountKey*.json
+*serviceAccountKey*
+*-firebase-adminsdk-*.json
+.env
+.env.*
+
+# 每次 build 自動重新產生的版本標記，不需要進版控
+public/version.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

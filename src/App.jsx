@@ -3,6 +3,7 @@ import Login from './components/Login';
 import Quiz from './components/Quiz';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentHome from './components/StudentHome';
+import { useVersionCheck } from './hooks/useVersionCheck';
 
 import './index.css'; 
 import '../src/assets/tearsfont-1.2.otf'; 
@@ -36,8 +37,9 @@ class ErrorBoundary extends React.Component {
 
 function MainApp() {
   const [currentUser, setCurrentUser] = useState(null);
-  const [currentView, setCurrentView] = useState("studentHome"); 
+  const [currentView, setCurrentView] = useState("studentHome");
   const [quizConfig, setQuizConfig] = useState(null);
+  const hasUpdate = useVersionCheck();
 
   const isLineApp = navigator.userAgent.includes("Line");
 
@@ -77,6 +79,24 @@ function MainApp() {
   return (
     // 🌟 完全移除黑邊，改為全螢幕滿版的淺色背景
     <div style={{ width: '100%', minHeight: '100vh', backgroundColor: '#f2efeb' }}>
+      {hasUpdate && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000,
+          display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '15px', flexWrap: 'wrap',
+          padding: '10px 20px', backgroundColor: '#d6b75a', color: '#4a4a4a',
+          fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif', fontSize: '1.1rem', fontWeight: 'bold',
+          borderBottom: '3px solid #4a4a4a',
+        }}>
+          <span>🔄 系統已經更新到新版本囉！建議先完成手上的作答，再重新整理套用最新內容。</span>
+          <button
+            className="pixel-btn btn-blue"
+            style={{ padding: '5px 15px', fontSize: '1rem' }}
+            onClick={() => window.location.reload()}
+          >
+            立即重新整理
+          </button>
+        </div>
+      )}
       {!currentUser ? (
         <Login onLoginSuccess={handleLoginSuccess} />
       ) : (

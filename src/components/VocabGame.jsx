@@ -16,14 +16,15 @@ const VocabGame = ({ user, userData, onBack }) => {
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [mistakes, setMistakes] = useState([]); 
   const [isFirstRound, setIsFirstRound] = useState(true); 
-  const [firstTryScore, setFirstTryScore] = useState(0); 
-  
+  const [firstTryScore, setFirstTryScore] = useState(0);
+  const [coinsEarned, setCoinsEarned] = useState(0);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const LEVELS = {
     easy: { name: '初階修練 (1-1000字)', min: 0, max: Math.min(1000, VOCAB_LIST.length), reward: 2 },
-    medium: { name: '中階修練 (1001-2500字)', min: Math.min(1001, VOCAB_LIST.length - 1), max: Math.min(2500, VOCAB_LIST.length), reward: 3 },
-    hard: { name: '高階修練 (2501-5021字)', min: Math.min(2501, VOCAB_LIST.length - 1), max: VOCAB_LIST.length, reward: 5 }
+    medium: { name: '中階修練 (1001-2500字)', min: Math.min(1001, VOCAB_LIST.length - 1), max: Math.min(2500, VOCAB_LIST.length), reward: 10 },
+    hard: { name: '高階修練 (2501-5021字)', min: Math.min(2501, VOCAB_LIST.length - 1), max: VOCAB_LIST.length, reward: 15 }
   };
   const [selectedLevel, setSelectedLevel] = useState(null);
   const fallbackBopo = ['ㄉㄚˋ', 'ㄒㄧㄠˇ', 'ㄏㄠˇ', 'ㄕㄨㄟˇ', 'ㄇㄨˋ', 'ㄏㄨㄛˇ', 'ㄊㄧㄢ', 'ㄖㄣˊ', 'ㄕㄢ', 'ㄕˊ'];
@@ -90,6 +91,7 @@ const VocabGame = ({ user, userData, onBack }) => {
     setCurrentCardIndex(0);
     setIsFlipped(false);
     setFirstTryScore(0);
+    setCoinsEarned(0);
     setIsFirstRound(true);
     setMistakes([]);
     setGameState('flashcard');
@@ -167,10 +169,16 @@ const VocabGame = ({ user, userData, onBack }) => {
   const finishGame = async () => {
     setGameState('result');
     setIsSubmitting(true);
+
+    // 🌟 比照 Quiz.jsx：依「第一次作答」的正確率等比例發放獎勵，而非只要通關就給全額
+    const ratio = targetWords.length > 0 ? firstTryScore / targetWords.length : 0;
+    const coins = Math.max(0, Math.round(selectedLevel.reward * ratio));
+    setCoinsEarned(coins);
+
     try {
-      const newCoins = (userData.coins || 0) + selectedLevel.reward;
+      const newCoins = (userData.coins || 0) + coins;
       await updateDoc(doc(db, "users", user.uid), { coins: newCoins });
-      userData.coins = newCoins; 
+      userData.coins = newCoins;
     } catch (error) {
       console.error("金幣發放失敗", error);
     }
@@ -187,7 +195,7 @@ const VocabGame = ({ user, userData, onBack }) => {
           <div style={styles.btnGroup}>
             {Object.entries(LEVELS).map(([key, level]) => (
               <button key={key} className="pixel-btn btn-blue" style={styles.actionBtn} onClick={() => startGame(key)}>
-                {level.name} <br/><span style={{fontSize:'1.1rem', color:'#dcdfdc'}}>🎁 獎勵 {level.reward} 金幣</span>
+                {level.name} <br/><span style={{fontSize:'1.1rem', color:'#dcdfdc'}}>🎁 最高獎勵 {level.reward} 金幣</span>
               </button>
             ))}
           </div>
@@ -320,12 +328,18 @@ const VocabGame = ({ user, userData, onBack }) => {
         <div className="pixel-card" style={styles.card}>
           <h2 style={styles.title}>🎉 完美通關</h2>
           <div className="pixel-box" style={styles.scoreBox}>
-            第一次作答正確數：<span style={{fontSize:'2.5rem', fontWeight:'bold', color:'#8ca279'}}>{firstTryScore}</span> / 20
-            
+            第一次作答正確數：<span style={{fontSize:'2.5rem', fontWeight:'bold', color:'#8ca279'}}>{firstTryScore}</span> / {targetWords.length}
+
             <div style={{marginTop: '20px'}}>
-               <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
-                 太棒了！你克服了所有錯題，成功獲得 <img src={moneyIconImg} alt="money" style={styles.moneyIcon} /> {selectedLevel.reward} 金幣！
-               </div>
+              {coinsEarned > 0 ? (
+                <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
+                  太棒了！你克服了所有錯題，成功獲得 <img src={moneyIconImg} alt="money" style={styles.moneyIcon} /> {coinsEarned} 金幣！
+                </div>
+              ) : (
+                <div style={{color: '#b97a7a', fontSize: '1.3rem'}}>
+                  😢 這次第一次作答對率較低，沒有獲得金幣，多熟悉幾次讀音下次就能拿到獎勵囉！
+                </div>
+              )}
             </div>
           </div>
           
@@ -361,7 +375,7 @@ const styles = {
   quizPromptBox: { padding: '20px', backgroundColor: '#e8e8e8', fontSize: '1.5rem', color: '#4a4a4a', border: '4px solid #4a4a4a', margin: '20px 0', fontWeight: 'bold' },
   quizTargetWord: { fontSize: '2.5rem', color: '#c0392b' }, 
   optionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' },
-  optionBtnBopo: { fontSize: '1.8rem', padding: '25px 10px', lineHeight: '1.3' }, 
+  optionBtnBopo: { fontSize: 'clamp(1.1rem, 5vw, 1.8rem)', padding: '25px 6px', lineHeight: '1.3' },
   
   mistakeList: { display: 'flex', flexDirection: 'column', gap: '10px', margin: '20px 0', maxHeight: '300px', overflowY: 'auto', padding: '10px', backgroundColor: '#e8e8e8', border: '4px solid #4a4a4a' },
   mistakeItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '15px', border: '2px dashed #4a4a4a' },
