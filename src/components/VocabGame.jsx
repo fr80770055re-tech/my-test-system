@@ -4,6 +4,9 @@ import { db } from '../firebase';
 import { VOCAB_LIST } from '../data/vocabData';
 import moneyIconImg from '../assets/money.png';
 
+// 🌟 生字本體改用楷體風格字型（跨平台的 LXGW WenKai TC），筆順字形比一般黑體更貼近課本教學
+const KAITI_FONT = '"LXGW WenKai TC", "標楷體", "DFKai-SB", serif';
+
 const VocabGame = ({ user, userData, onBack }) => {
   const [gameState, setGameState] = useState('menu'); 
   const [targetWords, setTargetWords] = useState([]);
@@ -309,7 +312,7 @@ const VocabGame = ({ user, userData, onBack }) => {
           <div style={styles.mistakeList}>
             {mistakes.map((m, idx) => (
               <div key={idx} style={styles.mistakeItem}>
-                <div style={{fontSize: '2rem', fontWeight: 'bold'}}>{m.targetWord}</div>
+                <div style={{fontSize: '2rem', fontWeight: 'bold', fontFamily: KAITI_FONT}}>{m.targetWord}</div>
                 <div style={{fontSize: '1.5rem', color: '#d6b75a', backgroundColor: '#4a4a4a', padding: '5px 15px', borderRadius: '5px'}}>
                   {dictCache[m.targetWord].bopomofo}
                 </div>
@@ -363,17 +366,17 @@ const styles = {
   
   flashcard: { position: 'relative', minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '20px 0', border: '8px solid #4a4a4a', cursor: 'pointer', transition: 'background-color 0.2s' },
   cardHint: { position: 'absolute', top: '15px', width: '100%', textAlign: 'center', fontSize: '1.1rem', color: '#7f8c8d' },
-  cardWordBig: { fontSize: '9rem', fontWeight: 'bold', color: '#2c3e50', marginTop: '20px' },
+  cardWordBig: { fontSize: '9rem', fontWeight: 'bold', color: '#2c3e50', marginTop: '20px', fontFamily: KAITI_FONT },
   cardBack: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 20px 20px 20px', boxSizing: 'border-box' },
   wordHeader: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '20px' },
-  cardWordSmall: { fontSize: '4.5rem', fontWeight: 'bold', color: '#4a4a4a', marginBottom: '10px' },
+  cardWordSmall: { fontSize: '4.5rem', fontWeight: 'bold', color: '#4a4a4a', marginBottom: '10px', fontFamily: KAITI_FONT },
   zhuyinBadge: { backgroundColor: '#d6b75a', color: '#4a4a4a', padding: '8px 15px', fontSize: '1.5rem', fontWeight: 'bold', border: '2px solid #4a4a4a' },
   examplesContainer: { width: '100%', textAlign: 'left', padding: '0 10px' },
   exampleTitle: { fontSize: '1.4rem', color: '#6e85b7', fontWeight: 'bold', marginBottom: '10px', borderBottom: '2px solid #6e85b7', paddingBottom: '5px' },
   exampleItem: { fontSize: '1.3rem', color: '#4a4a4a', marginBottom: '12px', lineHeight: '1.4' },
   
   quizPromptBox: { padding: '20px', backgroundColor: '#e8e8e8', fontSize: '1.5rem', color: '#4a4a4a', border: '4px solid #4a4a4a', margin: '20px 0', fontWeight: 'bold' },
-  quizTargetWord: { fontSize: '2.5rem', color: '#c0392b' }, 
+  quizTargetWord: { fontSize: '2.5rem', color: '#c0392b', fontFamily: KAITI_FONT },
   optionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' },
   optionBtnBopo: { fontSize: 'clamp(1.1rem, 5vw, 1.8rem)', padding: '25px 6px', lineHeight: '1.3' },
   
