@@ -74,6 +74,17 @@ import accShimaenagaImg from '../assets/thing_shimaenaga.png';
 import accHedgehogImg from '../assets/thing_hedgehog.png';
 import accWhiteCatImg from '../assets/thing_cats_13.png';
 import accPeacockImg from '../assets/thing_peacock_03.png';
+import avatarKintaroImg from '../assets/person_kintaro_01.png';
+import avatarIdolImg from '../assets/person_idol_01.png';
+import avatarPatissierImg from '../assets/person_patissier_01.png';
+import avatarPrimitiveManImg from '../assets/person_primitiveman_01.png';
+import avatarVegetableShopImg from '../assets/person_vegetableshop_01.png';
+import avatarDrumbandImg from '../assets/person_drumband_02.png';
+import accCapybaraImg from '../assets/thing_capybbara_01.png';
+import accSlothImg from '../assets/thing_sloth_01.png';
+import accOctopusImg from '../assets/thing_octopus_01.png';
+import accSeahorseImg from '../assets/thing_seahorse_01.png';
+import accFrogImg from '../assets/thing_frog_01.png';
 
 const SHOP_ITEMS = [
   { id: 'base_bear', type: 'base', name: '經典小狗', imageUrl: baseBearImg, price: 0 },
@@ -140,6 +151,17 @@ const SHOP_ITEMS = [
   { id: 'acc_hedgehog', name: '呆萌刺蝟', price: 60, imageUrl: accHedgehogImg, type: 'accessory', desc: '圓滾滾又帶刺，讓人忍不住想抱抱（小心）！' },
   { id: 'acc_whitecat', name: '白色小貓', price: 75, imageUrl: accWhiteCatImg, type: 'accessory', desc: '慵懶可愛，隨時準備討摸摸。' },
   { id: 'acc_peacock', name: '華麗孔雀', price: 90, imageUrl: accPeacockImg, type: 'accessory', desc: '展開華麗羽翼，全場最亮眼的焦點！' },
+  { id: 'avatar_kintaro', name: '怪力金太郎', price: 235, imageUrl: avatarKintaroImg, type: 'base', desc: '力大無窮的民間傳說英雄，據說能與熊摔角！' },
+  { id: 'avatar_idol', name: '閃亮偶像', price: 220, imageUrl: avatarIdolImg, type: 'base', desc: '舞台上閃閃發光，粉絲們的心中偶像。' },
+  { id: 'avatar_patissier', name: '甜點主廚', price: 205, imageUrl: avatarPatissierImg, type: 'base', desc: '製作出讓人幸福的甜點大師。' },
+  { id: 'avatar_primitiveman', name: '原始人', price: 200, imageUrl: avatarPrimitiveManImg, type: 'base', desc: '來自遠古時代，充滿原始野性的力量！' },
+  { id: 'avatar_vegetableshop', name: '蔬果老闆', price: 210, imageUrl: avatarVegetableShopImg, type: 'base', desc: '新鮮蔬果每日直送，社區的好鄰居。' },
+  { id: 'avatar_drumband', name: '鼓笛隊指揮', price: 245, imageUrl: avatarDrumbandImg, type: 'base', desc: '揮舞指揮棒，帶領隊伍邁向勝利！' },
+  { id: 'acc_capybara', name: '悠閒水豚君', price: 85, imageUrl: accCapybaraImg, type: 'accessory', desc: '泡在溫泉裡也不奇怪，天生一副悠閒臉。' },
+  { id: 'acc_sloth', name: '慢吞吞樹懶', price: 70, imageUrl: accSlothImg, type: 'accessory', desc: '慢慢來比較快，樹懶的生活哲學。' },
+  { id: 'acc_octopus', name: '八腳章魚', price: 65, imageUrl: accOctopusImg, type: 'accessory', desc: '八隻腳靈活運用，解題效率加倍？' },
+  { id: 'acc_seahorse', name: '優雅海馬', price: 60, imageUrl: accSeahorseImg, type: 'accessory', desc: '優雅漂浮在海中的神秘小生物。' },
+  { id: 'acc_frog', name: '呱呱青蛙', price: 65, imageUrl: accFrogImg, type: 'accessory', desc: '呱呱呱，池塘裡的活力歌手。' },
 ];
 
 const DEFAULT_BASE_URL = baseBearImg;

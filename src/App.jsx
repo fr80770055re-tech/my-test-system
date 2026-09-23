@@ -4,6 +4,7 @@ import Quiz from './components/Quiz';
 import TeacherDashboard from './components/TeacherDashboard';
 import StudentHome from './components/StudentHome';
 import { useVersionCheck } from './hooks/useVersionCheck';
+import { isEmbeddedInAppBrowser } from './utils/browserDetect';
 
 import './index.css'; 
 import '../src/assets/tearsfont-1.2.otf'; 
@@ -41,7 +42,9 @@ function MainApp() {
   const [quizConfig, setQuizConfig] = useState(null);
   const hasUpdate = useVersionCheck();
 
-  const isLineApp = navigator.userAgent.includes("Line");
+  // 🌟 不只擋 LINE：舉凡 FB/IG/微信/Android 系統 WebView 等內嵌瀏覽器都會被 Google 擋下登入，
+  // 常見於平板用某些「QR Code 掃描」App 直接開連結的情況，統一在這裡先攔下來並提示切換瀏覽器
+  const isInAppBrowser = isEmbeddedInAppBrowser();
 
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
@@ -56,19 +59,20 @@ function MainApp() {
   const TEACHER_EMAIL = "fr80770055re@gmail.com"; 
   const isTeacher = currentUser && currentUser.email === TEACHER_EMAIL;
 
-  if (!currentUser && isLineApp) {
+  if (!currentUser && isInAppBrowser) {
     return (
       <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f2efeb' }}>
         <div style={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', padding: '50px', borderRadius: '20px', textAlign: 'center', border: '5px solid #4a4a4a', maxWidth: '90%' }}>
           <h1 style={{ fontSize: '2.5rem', color: '#e74c3c', marginBottom: '20px' }}>⚠️ 請切換瀏覽器</h1>
           <p style={{ fontSize: '1.2rem', color: '#4a4a4a', marginBottom: '20px', lineHeight: '1.5' }}>
-            因為 LINE 瀏覽器的安全限制，您無法在這裡直接登入 Google 帳號。
+            目前這個畫面是被 LINE、Facebook 或某些「掃 QR Code」App 內建的瀏覽器打開的，安全限制下無法登入 Google 帳號。
           </p>
           <div style={{ backgroundColor: '#fdf6e3', padding: '15px', borderRadius: '10px', border: '3px dashed #d6b75a', textAlign: 'left' }}>
             <p style={{ fontWeight: 'bold', marginBottom: '10px' }}>👉 請依照以下步驟操作：</p>
             <ol style={{ paddingLeft: '20px', margin: 0 }}>
               <li>點擊右上角的 <strong>[⋮]</strong> 或 <strong>[⎋]</strong> 圖示</li>
               <li>選擇 <strong style={{ color: '#2980b9' }}>「使用預設瀏覽器開啟」</strong> 或 <strong style={{ color: '#2980b9' }}>「在 Safari 中開啟」</strong></li>
+              <li>如果掃 QR Code 進來的，也可以改用手機/平板內建的「相機」App 直接掃，會自動用系統瀏覽器開啟</li>
             </ol>
           </div>
         </div>

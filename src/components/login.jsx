@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 // 🌟 確保引入了 getRedirectResult 和 signInWithRedirect
 import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
-import { auth, provider } from '../firebase'; 
+import { auth, provider } from '../firebase';
+import { isMobileOrTablet } from '../utils/browserDetect';
 
 const Login = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -24,17 +25,27 @@ const Login = ({ onLoginSuccess }) => {
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
-    // 偵測是否為手機或平板
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
+    // 🌟 偵測是否為手機或平板（含新版 iPadOS 會偽裝成 Mac 桌機 UA 的情況，見 browserDetect.js）
+    const isMobile = isMobileOrTablet();
+
     try {
       if (isMobile) {
-        // 📱 手機版：使用「本頁跳轉」登入，100% 避開彈出視窗阻擋！
+        // 📱 手機/平板版：使用「本頁跳轉」登入，100% 避開彈出視窗阻擋！
         await signInWithRedirect(auth, provider);
       } else {
         // 💻 電腦版：使用「彈出視窗」登入，體驗較快！
-        const result = await signInWithPopup(auth, provider);
-        onLoginSuccess(result.user);
+        try {
+          const result = await signInWithPopup(auth, provider);
+          onLoginSuccess(result.user);
+        } catch (popupError) {
+          // 🌟 有些桌機瀏覽器（或被誤判成電腦版的裝置）預設就擋跳出視窗，
+          // 遇到「彈出視窗被封鎖」時自動改用「本頁跳轉」登入，避免整個卡住無法登入
+          if (popupError.code === 'auth/popup-blocked') {
+            await signInWithRedirect(auth, provider);
+            return;
+          }
+          throw popupError;
+        }
       }
     } catch (error) {
       console.error("登入失敗:", error);
@@ -67,10 +78,10 @@ const Login = ({ onLoginSuccess }) => {
 
         <div style={{ marginTop: '25px', padding: '15px', backgroundColor: '#fdf6e3', borderRadius: '10px', border: '3px dashed #d6b75a', textAlign: 'left' }}>
           <p style={{ color: '#c0392b', fontSize: '1rem', fontWeight: 'bold', margin: '0 0 10px 0' }}>
-            ⚠️ 手機使用重要提醒：
+            ⚠️ 手機／平板使用重要提醒：
           </p>
           <p style={{ color: '#4a4a4a', fontSize: '0.95rem', margin: '0' }}>
-            若您從 LINE 群組點開，請務必點擊右上角 <strong>[⋮]</strong> 或 <strong>[⎋]</strong>，選擇 <strong>「以預設瀏覽器開啟」</strong>（Safari 或 Chrome），才能順利登入喔！
+            若您是從 LINE、FB 或「掃 QR Code」App 點開這個畫面，請務必點擊右上角 <strong>[⋮]</strong> 或 <strong>[⎋]</strong>，選擇 <strong>「以預設瀏覽器開啟」</strong>（Safari 或 Chrome），才能順利登入喔！建議直接用內建「相機」App 掃 QR Code 最不容易出問題。
           </p>
         </div>
       </div>
