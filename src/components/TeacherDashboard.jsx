@@ -63,6 +63,18 @@ import avatarSailor from '../assets/person_underwear_sailor.png';
 import avatarWedding from '../assets/person_wedding_dress_01.png';
 import avatarFestival from '../assets/person_yamagasa_01.png';
 import avatarRedNinja from '../assets/redhatwithsword.png';
+import avatarKingImg from '../assets/pearson_king_01.png';
+import avatarPostmanImg from '../assets/person_postman_01.png';
+import avatarOfficeWorkerImg from '../assets/pearson_office_worker_01.png';
+import avatarBoyImg from '../assets/maede_boy_01.png';
+import avatarLadyImg from '../assets/pearson_lady_01.png';
+import avatarSumoImg from '../assets/person_smo-wrestler_01.png';
+import avatarPinkPegasusImg from '../assets/thing_pinkpegasus_01.png';
+import accLobsterImg from '../assets/thing_iseebi_01.png';
+import accShimaenagaImg from '../assets/thing_shimaenaga.png';
+import accHedgehogImg from '../assets/thing_hedgehog.png';
+import accWhiteCatImg from '../assets/thing_cats_13.png';
+import accPeacockImg from '../assets/thing_peacock_03.png';
 
 const SHOP_ITEMS = [
   { id: 'base_bear', type: 'base', name: '經典小狗', imageUrl: baseBearImg, price: 0 },
@@ -106,7 +118,19 @@ const SHOP_ITEMS = [
   { id: 'acc_hachi', name: '萌萌小黃狗', price: 45, imageUrl: hachiImg, type: 'accessory' },
   { id: 'acc_hito', name: '動感火柴人', price: 60, imageUrl: hitoImg, type: 'accessory' },
   { id: 'acc_kabocha', name: '搞怪南瓜', price: 25, imageUrl: kabochaImg, type: 'accessory' },
-  { id: 'acc_maede_01', name: '變裝精靈', price: 35, imageUrl: maede01Img, type: 'accessory' }
+  { id: 'acc_maede_01', name: '變裝精靈', price: 35, imageUrl: maede01Img, type: 'accessory' },
+  { id: 'avatar_king', name: '威嚴國王', price: 245, imageUrl: avatarKingImg, type: 'base' },
+  { id: 'avatar_postman', name: '認真郵差', price: 205, imageUrl: avatarPostmanImg, type: 'base' },
+  { id: 'avatar_officeworker', name: '上班族戰士', price: 210, imageUrl: avatarOfficeWorkerImg, type: 'base' },
+  { id: 'avatar_boy', name: '活潑男孩', price: 200, imageUrl: avatarBoyImg, type: 'base' },
+  { id: 'avatar_lady', name: '氣質千金', price: 230, imageUrl: avatarLadyImg, type: 'base' },
+  { id: 'avatar_sumo', name: '相撲力士', price: 220, imageUrl: avatarSumoImg, type: 'base' },
+  { id: 'avatar_pinkpegasus', name: '粉紅飛馬', price: 250, imageUrl: avatarPinkPegasusImg, type: 'base' },
+  { id: 'acc_lobster', name: '龍蝦大將', price: 65, imageUrl: accLobsterImg, type: 'accessory' },
+  { id: 'acc_shimaenaga', name: '雪白小鳥', price: 70, imageUrl: accShimaenagaImg, type: 'accessory' },
+  { id: 'acc_hedgehog', name: '呆萌刺蝟', price: 60, imageUrl: accHedgehogImg, type: 'accessory' },
+  { id: 'acc_whitecat', name: '白色小貓', price: 75, imageUrl: accWhiteCatImg, type: 'accessory' },
+  { id: 'acc_peacock', name: '華麗孔雀', price: 90, imageUrl: accPeacockImg, type: 'accessory' },
 ];
 
 const DEFAULT_BASE_URL = baseBearImg;

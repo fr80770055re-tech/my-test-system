@@ -62,6 +62,18 @@ import avatarSailor from '../assets/person_underwear_sailor.png';
 import avatarWedding from '../assets/person_wedding_dress_01.png';
 import avatarFestival from '../assets/person_yamagasa_01.png';
 import avatarRedNinja from '../assets/redhatwithsword.png';
+import avatarKingImg from '../assets/pearson_king_01.png';
+import avatarPostmanImg from '../assets/person_postman_01.png';
+import avatarOfficeWorkerImg from '../assets/pearson_office_worker_01.png';
+import avatarBoyImg from '../assets/maede_boy_01.png';
+import avatarLadyImg from '../assets/pearson_lady_01.png';
+import avatarSumoImg from '../assets/person_smo-wrestler_01.png';
+import avatarPinkPegasusImg from '../assets/thing_pinkpegasus_01.png';
+import accLobsterImg from '../assets/thing_iseebi_01.png';
+import accShimaenagaImg from '../assets/thing_shimaenaga.png';
+import accHedgehogImg from '../assets/thing_hedgehog.png';
+import accWhiteCatImg from '../assets/thing_cats_13.png';
+import accPeacockImg from '../assets/thing_peacock_03.png';
 
 const SHOP_ITEMS = [
   { id: 'base_bear', type: 'base', name: '經典小狗', imageUrl: baseBearImg, price: 0 },
@@ -116,6 +128,18 @@ const SHOP_ITEMS = [
   { id: 'acc_maede_09', name: '變裝精靈 09', price: 35, imageUrl: maede09Img, type: 'accessory' },
   { id: 'acc_maede_10', name: '變裝精靈 10', price: 35, imageUrl: maede10Img, type: 'accessory' },
   { id: 'acc_maede_11', name: '變裝精靈 11', price: 35, imageUrl: maede11Img, type: 'accessory' },
+  { id: 'avatar_king', name: '威嚴國王', price: 245, imageUrl: avatarKingImg, type: 'base', desc: '威風凜凜，號令天下的最高統治者！' },
+  { id: 'avatar_postman', name: '認真郵差', price: 205, imageUrl: avatarPostmanImg, type: 'base', desc: '風雨無阻，準時送達每一份知識包裹。' },
+  { id: 'avatar_officeworker', name: '上班族戰士', price: 210, imageUrl: avatarOfficeWorkerImg, type: 'base', desc: '認真打拼，為了達成業績（金幣）而努力！' },
+  { id: 'avatar_boy', name: '活潑男孩', price: 200, imageUrl: avatarBoyImg, type: 'base', desc: '天真無邪，充滿好奇心的少年。' },
+  { id: 'avatar_lady', name: '氣質千金', price: 230, imageUrl: avatarLadyImg, type: 'base', desc: '優雅氣質，舉手投足都是貴族風範。' },
+  { id: 'avatar_sumo', name: '相撲力士', price: 220, imageUrl: avatarSumoImg, type: 'base', desc: '力大無窮，穩如泰山！' },
+  { id: 'avatar_pinkpegasus', name: '粉紅飛馬', price: 250, imageUrl: avatarPinkPegasusImg, type: 'base', desc: '傳說中的粉紅色天馬，優雅地翱翔天際。' },
+  { id: 'acc_lobster', name: '龍蝦大將', price: 65, imageUrl: accLobsterImg, type: 'accessory', desc: '揮舞著大螯，霸氣十足的海中戰士。' },
+  { id: 'acc_shimaenaga', name: '雪白小鳥', price: 70, imageUrl: accShimaenagaImg, type: 'accessory', desc: '雪白圓滾滾，森林中的可愛精靈鳥。' },
+  { id: 'acc_hedgehog', name: '呆萌刺蝟', price: 60, imageUrl: accHedgehogImg, type: 'accessory', desc: '圓滾滾又帶刺，讓人忍不住想抱抱（小心）！' },
+  { id: 'acc_whitecat', name: '白色小貓', price: 75, imageUrl: accWhiteCatImg, type: 'accessory', desc: '慵懶可愛，隨時準備討摸摸。' },
+  { id: 'acc_peacock', name: '華麗孔雀', price: 90, imageUrl: accPeacockImg, type: 'accessory', desc: '展開華麗羽翼，全場最亮眼的焦點！' },
 ];
 
 const DEFAULT_BASE_URL = baseBearImg;
