@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc, getDoc, setDoc, updateDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../firebase'; 
 
@@ -156,6 +156,21 @@ const playSound = (type) => {
 
 
 // =========================================================================
+// 🌟 多班別群組判斷 + 日期工具
+// =========================================================================
+const ZHONG_CLASS_EMAIL_PREFIX = 'typs111'; // 🌟 五年忠班學生帳號的 Email 前綴
+const isZhongClassEmail = (email) => (email || '').toLowerCase().startsWith(ZHONG_CLASS_EMAIL_PREFIX);
+
+// 🌟 用瀏覽器（老師端）當地日期當作「今天」，缺席名單依這個日期自動歸零
+const getTodayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+// =========================================================================
 // 🌟 教師控制台主元件
 // =========================================================================
 const TeacherDashboard = ({ user }) => {
@@ -197,7 +212,11 @@ const TeacherDashboard = ({ user }) => {
   const [newStudentEmail, setNewStudentEmail] = useState('');
   const [editingNameId, setEditingNameId] = useState(null);
   const [isDeleteMode, setIsDeleteMode] = useState(false); // 🌟 新增：刪除模式開關狀態
-  const [absentIds, setAbsentIds] = useState(new Set()); // 🌟 新增：今日缺席學生名單（僅本次登入畫面暫存，不寫入資料庫）
+  const [absentIds, setAbsentIds] = useState(new Set()); // 🌟 今日缺席學生名單，寫入 settings/attendance，每日自動刷新
+  const [attendanceDate, setAttendanceDate] = useState(null); // 🌟 目前 absentIds 對應的日期（YYYY-MM-DD）
+
+  // 🌟 多班別群組篩選：'zhong' 五年忠班（Email 前綴 typs111）／'others' 其他使用者／'all' 全部
+  const [groupFilter, setGroupFilter] = useState('zhong');
 
   // --- 座位表自訂狀態 ---
   const [gridCols, setGridCols] = useState(6);
@@ -218,20 +237,32 @@ const TeacherDashboard = ({ user }) => {
   const [pickerPool, setPickerPool] = useState([]);
 
   useEffect(() => {
-    let unsubscribe = () => {};
+    let unsubStudents = () => {};
+    let unsubAttendance = () => {};
     if (activeTab === 'dojo') {
-      unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
+      unsubStudents = onSnapshot(collection(db, "users"), (snapshot) => {
         let stList = [];
         snapshot.forEach((doc) => stList.push({ id: doc.id, ...doc.data() }));
-        stList = stList.filter(s => s.email !== user.email); 
-        
+        stList = stList.filter(s => s.email !== user.email);
+
         stList.sort((a, b) => {
             const nameA = a.name || a.displayName || '未命名';
             const nameB = b.name || b.displayName || '未命名';
             return nameA.localeCompare(nameB);
         });
-        
+
         setStudents(stList);
+      });
+
+      // 🌟 缺席名單改成寫進 settings/attendance，並依「今天日期」比對，跨日自動視為全員到齊
+      unsubAttendance = onSnapshot(doc(db, "settings", "attendance"), (snap) => {
+        const todayStr = getTodayStr();
+        if (snap.exists() && snap.data().date === todayStr) {
+          setAbsentIds(new Set(snap.data().absentIds || []));
+        } else {
+          setAbsentIds(new Set());
+        }
+        setAttendanceDate(todayStr);
       });
     } else if (activeTab === 'list') {
       fetchQuestions();
@@ -240,8 +271,21 @@ const TeacherDashboard = ({ user }) => {
     } else if (activeTab === 'settings') {
       fetchSettings();
     }
-    return () => unsubscribe();
+    return () => { unsubStudents(); unsubAttendance(); };
   }, [activeTab]);
+
+  // 🌟 老師後台長時間開著跨過午夜 00:00 時，每分鐘檢查一次日期，讓缺席名單準時「歸零」
+  useEffect(() => {
+    if (activeTab !== 'dojo') return;
+    const timer = setInterval(() => {
+      const todayStr = getTodayStr();
+      if (todayStr !== attendanceDate) {
+        setAbsentIds(new Set());
+        setAttendanceDate(todayStr);
+      }
+    }, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [activeTab, attendanceDate]);
 
   // 🌟 一開始就先載入題庫，讓「單元/課別」輸入框的建議清單在任何分頁都能立即使用
   useEffect(() => {
@@ -332,6 +376,19 @@ const TeacherDashboard = ({ user }) => {
     }
   };
 
+  // 🌟 依目前選擇的群組（五年忠班／其他使用者／全部）篩選出的學生清單
+  const groupFilteredStudents = useMemo(() => {
+    if (groupFilter === 'zhong') return students.filter(s => isZhongClassEmail(s.email));
+    if (groupFilter === 'others') return students.filter(s => !isZhongClassEmail(s.email));
+    return students;
+  }, [students, groupFilter]);
+
+  // 🌟 目前群組中登記缺席的人數（缺席名單本身是全校共用，但畫面上只顯示目前群組的部分）
+  const groupAbsentCount = useMemo(
+    () => groupFilteredStudents.filter(st => absentIds.has(st.id)).length,
+    [groupFilteredStudents, absentIds]
+  );
+
   const handleUpdateCoins = async (targetId, amount) => {
     const isAdd = amount > 0;
     const animType = isAdd ? 'dojo-add' : 'dojo-deduct';
@@ -339,9 +396,9 @@ const TeacherDashboard = ({ user }) => {
 
     playSound(isAdd ? 'add' : 'deduct');
 
-    // 🌟 全班加扣分時，自動跳過已登記缺席的學生
+    // 🌟 全班加扣分只套用在目前群組，並自動跳過已登記缺席的學生
     const targetStudents = targetId === 'all'
-      ? students.filter(st => !absentIds.has(st.id))
+      ? groupFilteredStudents.filter(st => !absentIds.has(st.id))
       : students.filter(st => st.id === targetId);
 
     let newAnims = {};
@@ -363,21 +420,32 @@ const TeacherDashboard = ({ user }) => {
   };
 
   // -------------------------
-  // 🌟 缺席登記（全班加扣分時會自動跳過）
+  // 🌟 缺席登記：寫進 settings/attendance（含日期），全班加扣分／抽籤都會自動跳過缺席者，且每天自動歸零
   // -------------------------
-  const handleToggleAbsent = (studentId) => {
-    setAbsentIds(prev => {
-      const next = new Set(prev);
-      if (next.has(studentId)) {
-        next.delete(studentId);
-      } else {
-        next.add(studentId);
-      }
-      return next;
-    });
+  const handleToggleAbsent = async (studentId) => {
+    const next = new Set(absentIds);
+    if (next.has(studentId)) {
+      next.delete(studentId);
+    } else {
+      next.add(studentId);
+    }
+    try {
+      await setDoc(doc(db, "settings", "attendance"), { date: getTodayStr(), absentIds: Array.from(next) });
+    } catch (error) {
+      console.error("更新缺席名單失敗", error);
+    }
   };
 
-  const handleClearAbsent = () => setAbsentIds(new Set());
+  // 🌟 只清除「目前群組」的缺席登記，不會影響其他班別今天已登記的缺席名單
+  const handleClearAbsent = async () => {
+    const currentGroupIds = new Set(groupFilteredStudents.map(s => s.id));
+    const remaining = Array.from(absentIds).filter(id => !currentGroupIds.has(id));
+    try {
+      await setDoc(doc(db, "settings", "attendance"), { date: getTodayStr(), absentIds: remaining });
+    } catch (error) {
+      console.error("清除缺席名單失敗", error);
+    }
+  };
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -394,24 +462,31 @@ const TeacherDashboard = ({ user }) => {
   };
 
   const handleStartPick = () => {
-    if (students.length === 0) return;
-    let currentPool = [...pickerPool];
+    // 🌟 抽籤只在「目前群組」中進行，且自動排除已登記缺席的學生
+    const eligibleStudents = groupFilteredStudents.filter(s => !absentIds.has(s.id));
+    if (eligibleStudents.length === 0) {
+      alert('目前這個群組沒有可以抽籤的學生（可能全部缺席，或名單是空的）！');
+      return;
+    }
+    const eligibleIds = new Set(eligibleStudents.map(s => s.id));
+    // 🌟 池子裡如果殘留了已經缺席或不屬於目前群組的舊資料，先濾掉再用
+    let currentPool = pickerPool.filter(id => eligibleIds.has(id));
     if (currentPool.length === 0) {
-      currentPool = students.map(s => s.id);
+      currentPool = eligibleStudents.map(s => s.id);
     }
     setIsPicking(true);
     setPickedStudent(null);
 
     let tempInterval = setInterval(() => {
-      const randomS = students[Math.floor(Math.random() * students.length)];
+      const randomS = eligibleStudents[Math.floor(Math.random() * eligibleStudents.length)];
       setDisplayStudent(randomS);
     }, 100);
 
     setTimeout(() => {
       clearInterval(tempInterval);
       const winnerId = currentPool[Math.floor(Math.random() * currentPool.length)];
-      const winner = students.find(s => s.id === winnerId);
-      
+      const winner = eligibleStudents.find(s => s.id === winnerId);
+
       setDisplayStudent(winner);
       setPickedStudent(winner);
       setPickerPool(currentPool.filter(id => id !== winnerId));
@@ -428,11 +503,12 @@ const TeacherDashboard = ({ user }) => {
   const allowDrop = (e) => { e.preventDefault(); };
 
   const handleRandomSeating = async () => {
+    // 🌟 只針對「目前群組」排座位，不同群組可以各自使用同一組座位編號而不互相影響
     const totalSeats = gridCols * gridRows;
-    const occupiedSeats = students.filter(s => s.seatIndex !== undefined && s.seatIndex >= 0 && s.seatIndex < totalSeats).map(s => s.seatIndex);
+    const occupiedSeats = groupFilteredStudents.filter(s => s.seatIndex !== undefined && s.seatIndex >= 0 && s.seatIndex < totalSeats).map(s => s.seatIndex);
     const availableSeats = [];
     for (let i = 0; i < totalSeats; i++) { if (!occupiedSeats.includes(i)) availableSeats.push(i); }
-    const unseatedStudents = students.filter(s => s.seatIndex === undefined || s.seatIndex < 0 || s.seatIndex >= totalSeats);
+    const unseatedStudents = groupFilteredStudents.filter(s => s.seatIndex === undefined || s.seatIndex < 0 || s.seatIndex >= totalSeats);
 
     if (unseatedStudents.length > availableSeats.length) {
       alert(`⚠️ 剩餘空位不足！\n目前剩餘 ${availableSeats.length} 個位子，但還有 ${unseatedStudents.length} 個學生未入座，請增加格數。`);
@@ -446,8 +522,8 @@ const TeacherDashboard = ({ user }) => {
   };
 
   const handleClearSeats = async () => {
-    if (!window.confirm("確定要清空所有學生的座位嗎？")) return;
-    const promises = students.filter(s => s.seatIndex !== undefined && s.seatIndex !== -1).map(st => updateDoc(doc(db, "users", st.id), { seatIndex: -1 }));
+    if (!window.confirm("確定要清空目前這個群組所有學生的座位嗎？")) return;
+    const promises = groupFilteredStudents.filter(s => s.seatIndex !== undefined && s.seatIndex !== -1).map(st => updateDoc(doc(db, "users", st.id), { seatIndex: -1 }));
     await Promise.all(promises);
   };
 
@@ -556,17 +632,17 @@ const TeacherDashboard = ({ user }) => {
           </div>
         </div>
         
-        {/* 🌟 只有在「不是刪除模式」且「允許顯示按鈕」時，才顯示加扣分按鈕 */}
+        {/* 🌟 只有在「不是刪除模式」且「允許顯示按鈕」時，才顯示加扣分按鈕；缺席時整組停用，避免誤加扣分 */}
         {!hideButtons && !isDeleteMode && (
           <div style={{display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '10px'}}>
              <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 1)}>+1</button>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 5)}>+5</button>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 10)}>+10</button>
+              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+1</button>
+              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+5</button>
+              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 10)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+10</button>
             </div>
             <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
-              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -1)}>-1</button>
-              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -5)}>-5</button>
+              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-1</button>
+              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-5</button>
             </div>
           </div>
         )}
@@ -874,7 +950,21 @@ const TeacherDashboard = ({ user }) => {
       {/* --- 🌟 Dojo 班級經營區塊 --- */}
       {activeTab === 'dojo' && (
         <div className="pixel-card" style={{...styles.card, backgroundColor: '#fdf6e3'}}>
-          
+
+          {/* 🌟 群組切換：五年忠班（Email 前綴 typs111）／其他使用者／全部，下方列表、座位表、抽籤、全班加扣分都只作用在這個群組 */}
+          <div style={{display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap'}}>
+            <span style={{fontWeight: 'bold', color: '#4a4a4a', fontSize: '1.2rem'}}>👥 目前群組：</span>
+            <button className={`pixel-btn ${groupFilter === 'zhong' ? 'btn-yellow' : 'btn-gray'}`} style={{color: '#4a4a4a', padding: '8px 15px'}} onClick={() => setGroupFilter('zhong')}>
+              五年忠班（{students.filter(s => isZhongClassEmail(s.email)).length}）
+            </button>
+            <button className={`pixel-btn ${groupFilter === 'others' ? 'btn-yellow' : 'btn-gray'}`} style={{color: '#4a4a4a', padding: '8px 15px'}} onClick={() => setGroupFilter('others')}>
+              其他使用者（{students.filter(s => !isZhongClassEmail(s.email)).length}）
+            </button>
+            <button className={`pixel-btn ${groupFilter === 'all' ? 'btn-yellow' : 'btn-gray'}`} style={{color: '#4a4a4a', padding: '8px 15px'}} onClick={() => setGroupFilter('all')}>
+              全部（{students.length}）
+            </button>
+          </div>
+
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px dashed #ccc', paddingBottom: '15px', flexWrap: 'wrap', gap: '10px'}}>
             <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
               <button className={`pixel-btn ${dojoMode === 'list' ? 'btn-yellow' : 'btn-gray'}`} style={{color: '#4a4a4a', padding: '10px'}} onClick={() => setDojoMode('list')}>📋 一般列表</button>
@@ -889,15 +979,15 @@ const TeacherDashboard = ({ user }) => {
                 {isDeleteMode ? '退出刪除模式' : '🗑️ 刪除學生'}
               </button>
 
-              {/* 🌟 缺席名單重設按鈕：新的一堂課開始時，一鍵讓所有學生恢復到班狀態 */}
-              {absentIds.size > 0 && (
+              {/* 🌟 缺席名單重設按鈕：只重設目前群組，新的一堂課開始時一鍵讓學生恢復到班狀態（缺席名單本身也會在每天 00:00 自動歸零） */}
+              {groupAbsentCount > 0 && (
                 <button
                   className="pixel-btn btn-gray"
                   style={{ color: '#4a4a4a', padding: '10px' }}
                   onClick={handleClearAbsent}
-                  title="清除所有缺席登記，讓全部學生恢復到班狀態"
+                  title="清除目前群組的缺席登記，讓學生恢復到班狀態"
                 >
-                  🔄 重設出席（{absentIds.size} 人缺席）
+                  🔄 重設出席（{groupAbsentCount} 人缺席）
                 </button>
               )}
 
@@ -941,7 +1031,7 @@ const TeacherDashboard = ({ user }) => {
 
           {dojoMode === 'list' ? (
             <div style={styles.dojoGrid}>
-              {students.map(st => <StudentCard key={st.id} st={st} hideButtons={false} />)}
+              {groupFilteredStudents.map(st => <StudentCard key={st.id} st={st} hideButtons={false} />)}
             </div>
           ) : (
             <div>
@@ -965,7 +1055,7 @@ const TeacherDashboard = ({ user }) => {
 
               <div style={{marginBottom: '20px', padding: '15px', backgroundColor: '#e8e8e8', borderRadius: '10px', minHeight: '130px', display: 'flex', gap: '10px', flexWrap: 'wrap', border: '3px dashed #b2bec3'}} onDrop={(e) => handleDrop(e, -1)} onDragOver={allowDrop}>
                 <div style={{width: '100%', fontWeight: 'bold', color: '#4a4a4a'}}>🚶 未編排座位的學生：</div>
-                {students.filter(s => s.seatIndex === undefined || s.seatIndex === -1 || s.seatIndex >= gridCols * gridRows).map(st => (
+                {groupFilteredStudents.filter(s => s.seatIndex === undefined || s.seatIndex === -1 || s.seatIndex >= gridCols * gridRows).map(st => (
                   <div key={st.id} style={{transform: 'scale(0.9)', transformOrigin: 'top left'}}>
                     <StudentCard st={st} isDraggable={true} hideButtons={true} />
                   </div>
@@ -974,7 +1064,7 @@ const TeacherDashboard = ({ user }) => {
 
               <div style={{display: 'grid', gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gap: '10px', backgroundColor: '#fff', padding: '20px', border: '4px solid #4a4a4a', borderRadius: '15px'}}>
                 {Array.from({ length: gridCols * gridRows }).map((_, idx) => {
-                  const occupant = students.find(s => s.seatIndex === idx);
+                  const occupant = groupFilteredStudents.find(s => s.seatIndex === idx);
                   return (
                     <div 
                       key={idx} 
