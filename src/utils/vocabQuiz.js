@@ -1,14 +1,15 @@
 // 識字修練場出題：四種題型，錯誤選項刻意挑「容易搞混但一定是錯的」答案。
-//   reading 看字選音：錯誤選項優先用同音不同調（ㄊㄜˋ → ㄊㄜˊ、ㄊㄜˇ）
+//   reading 看字選音（主力題型）：錯誤選項優先用同音不同調（ㄊㄜˋ → ㄊㄜˊ、ㄊㄜˇ）
+//   word    造詞填空（主力題型）：錯誤選項優先用同音、同部首的字，並排除能組成其他常見詞的字
 //   char    看音選字：錯誤選項優先用同部首的字，並排除所有同音字，避免一題兩解
-//   word    詞語填空：錯誤選項優先用同音、同部首的字，並排除能組成其他常見詞的字
-//   flower  花瓣識字：花心空白、花瓣是含這個字的詞，錯誤選項放進任何一片花瓣都不能成詞
+//   flower  部件花瓣：花心是共同部件（如「青」），選項全是同家族的字（晴清請情），靠讀音與造詞分辨
 import { shuffle } from './vocabProgress.js';
 
 const TONE_MARKS = ['ˊ', 'ˇ', 'ˋ'];
-const TYPE_WEIGHTS = { reading: 3, char: 3, word: 2, flower: 2 };
-const MIN_PETALS = 3;
-const MAX_PETALS = 5;
+// 讀音與造詞是識字量測驗的主要題型，各占四成
+const TYPE_WEIGHTS = { reading: 4, word: 4, char: 1, flower: 1 };
+const MAX_CONTEXT_PETALS = 5;
+const INITIALS = /^[ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙ]/;
 // 「慢慢的走／慢慢地走」兩種寫法都可接受，這兩個字不能互當錯誤選項
 const INTERCHANGEABLE = [['的', '地']];
 const interchangeable = (a, b) => INTERCHANGEABLE.some((pair) => pair.includes(a) && pair.includes(b));
@@ -22,10 +23,12 @@ export function splitTone(bopomofo) {
 }
 
 const primaryReading = (entry) => entry.readings[0].bopomofo;
+const finalOf = (bopomofo) => splitTone(bopomofo).body.replace(INITIALS, '');
+const soundsAlike = (a, b) => a.readings.some((r) => b.readings.some((x) => finalOf(r.bopomofo) === finalOf(x.bopomofo)));
 const hasReading = (entry, bopomofo) => entry.readings.some((r) => r.bopomofo === bopomofo);
 
 // pool：可以拿來當錯誤選項的字（同級或更簡單的字，避免出現學生沒學過的罕用字）
-export function buildIndexes(dict, pool) {
+export function buildIndexes(dict, pool, components = null) {
   const byRadical = new Map();
   const byBody = new Map();
   const allWords = new Set();
@@ -43,7 +46,8 @@ export function buildIndexes(dict, pool) {
       byBody.get(body).push(c);
     }
   }
-  return { byRadical, byBody, allWords, pool: pool.filter((c) => dict[c]) };
+  const inPool = pool.filter((c) => dict[c]);
+  return { byRadical, byBody, allWords, pool: inPool, poolSet: new Set(inPool), components };
 }
 
 // 依序從各候選清單補到 3 個錯誤選項，accept 不通過的一律跳過
@@ -92,33 +96,65 @@ function wordQuestion(char, entry, dict, idx) {
   return { type: 'word', targetWord: char, prompt, word, answer: char, options: shuffle([char, ...distractors]) };
 }
 
-function flowerQuestion(char, entry, dict, idx) {
-  const words = shuffle(kidWords(entry)).slice(0, MAX_PETALS);
-  const { body } = splitTone(primaryReading(entry));
-  const accept = (c) => c !== char && !interchangeable(c, char)
-    && words.every((w) => !idx.allWords.has(w.replaceAll(char, c)));
-  const distractors = pickDistractors(
-    [idx.byBody.get(body) || [], idx.byRadical.get(entry.radical) || [], shuffle(idx.pool).slice(0, 60)],
-    accept,
-  );
+// 部件家族：回傳共同部件、以及學生程度內的同家族字（聲音相近的排前面）
+function familyOf(char, dict, idx) {
+  const key = idx.components?.keyOf[char];
+  if (!key) return null;
+  const members = idx.components.families[key].filter(([m]) => dict[m] && (m === char || idx.poolSet.has(m)));
+  const self = members.find(([m]) => m === char);
+  if (!self) return null;
+  const siblings = members.filter(([m]) => m !== char);
+  const alike = siblings.filter(([m]) => soundsAlike(dict[m], dict[char]));
+  const ordered = [...alike, ...siblings.filter((x) => !alike.includes(x))];
+  return { key, keyStrokeCount: self[2] - self[1] + 1, self, siblings: ordered };
+}
+
+const petalOf = ([c, start, end], dict) => ({ char: c, range: [start, end], label: primaryReading(dict[c]) });
+
+// 字卡背面用：這個字排在花瓣第一片並標亮，其餘放同家族的字
+export function familyView(char, dict, idx) {
+  const fam = familyOf(char, dict, idx);
+  if (!fam || fam.siblings.length < 2) return null;
   return {
-    type: 'flower', targetWord: char, words, petals: words.map((w) => w.replaceAll(char, '＿')),
-    answer: char, options: shuffle([char, ...distractors]),
+    key: fam.key,
+    keyStrokeCount: fam.keyStrokeCount,
+    petals: [{ ...petalOf(fam.self, dict), highlight: true }, ...fam.siblings.slice(0, MAX_CONTEXT_PETALS).map((m) => petalOf(m, dict))],
+  };
+}
+
+function flowerQuestion(char, entry, dict, idx) {
+  const fam = familyOf(char, dict, idx);
+  if (!fam) return null;
+  const reading = primaryReading(entry);
+  const words = kidWords(entry);
+  const word = words.length > 0 ? words[Math.floor(Math.random() * words.length)] : null;
+  // 同家族、而且「讀音不同」或「放進詞裡不成詞」的字才能當錯誤選項，確保只有一個正確答案
+  const accept = (m) => !interchangeable(m, char)
+    && !(hasReading(dict[m], reading) && (!word || idx.allWords.has(word.replaceAll(char, m))));
+  const distractors = pickDistractors([fam.siblings.map(([m]) => m)], accept);
+  if (distractors.length < 3) return null;
+
+  const optionSet = new Set([char, ...distractors]);
+  const context = fam.siblings.filter(([m]) => !optionSet.has(m)).slice(0, MAX_CONTEXT_PETALS - 1);
+  if (context.length < 2) return null;
+  return {
+    type: 'flower', targetWord: char, key: fam.key, keyStrokeCount: fam.keyStrokeCount, reading, word,
+    petals: shuffle([...context.map((m) => petalOf(m, dict)), { char, range: fam.self.slice(1), label: reading, hidden: true, highlight: true }]),
+    answer: char, options: shuffle([...optionSet]),
   };
 }
 
 export function makeQuestion(char, dict, idx) {
   const entry = dict[char];
   const types = ['reading', 'char'];
-  const wordCount = kidWords(entry).length;
-  if (wordCount > 0) types.push('word');
-  if (wordCount >= MIN_PETALS) types.push('flower');
+  if (kidWords(entry).length > 0) types.push('word');
+  if (idx.components?.keyOf[char]) types.push('flower');
 
   let roll = Math.random() * types.reduce((sum, t) => sum + TYPE_WEIGHTS[t], 0);
   const type = types.find((t) => (roll -= TYPE_WEIGHTS[t]) < 0) || 'reading';
 
   const builders = { flower: flowerQuestion, word: wordQuestion, char: charQuestion, reading: readingQuestion };
   const q = builders[type](char, entry, dict, idx);
-  // 萬一錯誤選項湊不滿（極少數字），退回最保險的看字選音
-  return q.options.length === 4 || type === 'reading' ? q : readingQuestion(char, entry, dict, idx);
+  // 萬一這個字湊不出合格的題目（家族太小、錯誤選項不足），退回最保險的看字選音
+  return q && q.options.length === 4 ? q : readingQuestion(char, entry, dict, idx);
 }

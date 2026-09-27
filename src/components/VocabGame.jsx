@@ -4,11 +4,12 @@ import { db } from '../firebase';
 import { VOCAB_LIST } from '../data/vocabdata';
 import moneyIconImg from '../assets/money.png';
 import StrokeOrder from './StrokeOrder';
-import WordFlower from './WordFlower';
+import ComponentFlower from './ComponentFlower';
+import WordChip, { WORD_COLOR } from './WordChip';
 import flowerIcon from '../assets/plant_flower_pink_01.png';
 import { BADGES, countMastered, updateStats, newlyEarned } from '../utils/badges';
 import { todayNumber, shuffle, summarize, mistakeChars, cardTag, pickRound, applyResult, MASTERED_LEVEL } from '../utils/vocabProgress';
-import { buildIndexes, makeQuestion } from '../utils/vocabQuiz';
+import { buildIndexes, makeQuestion, familyView } from '../utils/vocabQuiz';
 
 // 🌟 生字本體改用楷體風格字型（跨平台的 LXGW WenKai TC），筆順字形比一般黑體更貼近課本教學
 const KAITI_FONT = '"LXGW WenKai TC", "標楷體", "DFKai-SB", serif';
@@ -22,7 +23,11 @@ const SOURCE_LABELS = {
   mini: '教育部《國語小字典》',
 };
 
-// 🌟 字卡背面：標準筆順動畫、部首筆畫、每個讀音的字義，以及常用詞
+// 🌟 例句裡「」框起來的詞一律用造詞綠色標示，和造詞標籤同一套顏色
+const renderExample = (text) => text.split(/(「[^」]*」)/).map((part, i) =>
+  part.startsWith('「') ? <span key={i} style={{ color: WORD_COLOR, fontWeight: 'bold' }}>{part}</span> : part);
+
+// 🌟 字卡背面：標準筆順動畫、部首筆畫、每個讀音的字義、造詞，以及部件花瓣
 const CardBack = ({ char, info }) => {
   if (!info) return null;
   const sources = [...new Set(info.readings.map(r => SOURCE_LABELS[r.defSource === 'mini' ? 'mini' : r.source]).filter(Boolean))];
@@ -50,7 +55,7 @@ const CardBack = ({ char, info }) => {
                   <li key={j} style={styles.defItem}>
                     {d.type && <span style={styles.typeTag}>{d.type}</span>}
                     {d.def}
-                    {d.example && <div style={styles.defExample}>{d.example}</div>}
+                    {d.example && <div style={styles.defExample}>{renderExample(d.example)}</div>}
                   </li>
                 ))}
               </ol>
@@ -61,15 +66,19 @@ const CardBack = ({ char, info }) => {
         ))}
       </div>
 
-      {info.words.length >= 2 ? (
-        <div style={styles.flowerSection}>
-          <div style={styles.flowerTitle}><img src={flowerIcon} alt="" style={styles.inlineIcon} />花瓣識字：常用詞</div>
-          <WordFlower center={char} petals={info.words.slice(0, 6)} fontFamily={KAITI_FONT} />
-        </div>
-      ) : info.words.length === 1 && (
+      {info.words.length > 0 && (
         <div style={styles.wordsRow}>
-          <span style={{fontWeight: 'bold', color: '#6e85b7'}}>💡 常用詞：</span>
-          <span style={styles.wordChip}>{info.words[0]}</span>
+          {info.words.slice(0, 8).map(w => <WordChip key={w} word={w} target={char} fontFamily={KAITI_FONT} />)}
+        </div>
+      )}
+
+      {info.family && (
+        <div style={styles.flowerSection}>
+          <div style={styles.flowerTitle}>
+            <img src={flowerIcon} alt="" style={styles.inlineIcon} />花瓣識字：「{info.family.key}」家族
+          </div>
+          <div style={styles.flowerHint}>這些字都有「{info.family.key}」，換上不同的部件就變成不同的字</div>
+          <ComponentFlower keyChar={info.family.key} keyStrokeCount={info.family.keyStrokeCount} petals={info.family.petals} fontFamily={KAITI_FONT} />
         </div>
       )}
 
@@ -140,8 +149,11 @@ const VocabGame = ({ user, userData, onBack }) => {
 
     // 🌟 字音字義改讀事先建好的本地字典（scripts/build-dict.js 產生），不再即時連萌典，避免查無讀音或連線失敗
     let dict;
+    let components;
     try {
-      dict = (await import('../data/dictData.json')).default;
+      const [dictModule, componentModule] = await Promise.all([import('../data/dictData.json'), import('../data/componentData.json')]);
+      dict = dictModule.default;
+      components = componentModule.default;
     } catch (error) {
       console.error("字典資料載入失敗", error);
       alert("字卡資料載入失敗，請確認網路連線後再試一次！");
@@ -151,7 +163,8 @@ const VocabGame = ({ user, userData, onBack }) => {
 
     picked = picked.filter(c => dict[c]);
     // 🌟 錯誤選項只從「同級或更簡單」的字挑，避免出現學生沒學過的罕用字
-    quizContext.current = { dict, idx: buildIndexes(dict, [...new Set(VOCAB_LIST.slice(0, poolMax))]) };
+    const idx = buildIndexes(dict, [...new Set(VOCAB_LIST.slice(0, poolMax))], components);
+    quizContext.current = { dict, idx };
 
     const newCache = {};
     for (const word of picked) {
@@ -163,6 +176,7 @@ const VocabGame = ({ user, userData, onBack }) => {
         radical: entry.radical || '',
         strokes: entry.strokes || null,
         variantOf: entry.variantOf || null,
+        family: familyView(word, dict, idx),
       };
     }
 
@@ -406,11 +420,17 @@ const VocabGame = ({ user, userData, onBack }) => {
           <div style={styles.quizPromptBox}>
             {q.type === 'reading' && <>請問 <span style={styles.quizTargetWord}>「{q.prompt}」</span> 的讀音是什麼？</>}
             {q.type === 'char' && <>讀音 <span style={styles.quizBopomofo}>{q.prompt}</span> 是哪一個字？</>}
-            {q.type === 'word' && <>哪一個字可以填進 <span style={styles.quizTargetWord}>「{q.prompt}」</span>？</>}
-            {q.type === 'flower' && <><img src={flowerIcon} alt="" style={styles.inlineIcon} />哪一個字放進花心，每片花瓣都能變成詞語？</>}
+            {q.type === 'word' && <>哪一個字可以填進 <WordChip word={q.prompt} fontFamily={KAITI_FONT} large /> ？</>}
+            {q.type === 'flower' && (
+              <>
+                <img src={flowerIcon} alt="" style={styles.inlineIcon} />花瓣上的字都有「<span style={{color: '#2f6fb5'}}>{q.key}</span>」。
+                哪一個字讀 <span style={styles.quizBopomofo}>{q.reading}</span>
+                {q.word && <>，可以組成 <WordChip word={q.word.replaceAll(q.targetWord, '＿')} fontFamily={KAITI_FONT} /></>}？
+              </>
+            )}
           </div>
 
-          {q.type === 'flower' && <WordFlower center="？" petals={q.petals} fontFamily={KAITI_FONT} highlight />}
+          {q.type === 'flower' && <ComponentFlower keyChar={q.key} keyStrokeCount={q.keyStrokeCount} petals={q.petals} fontFamily={KAITI_FONT} />}
 
           {/* 🌟 測驗選項區塊，維持完美的 2x2 網格 */}
           <div style={styles.optionsGrid}>
@@ -439,8 +459,7 @@ const VocabGame = ({ user, userData, onBack }) => {
               <div key={idx} style={styles.mistakeItem}>
                 <div style={{fontSize: '2rem', fontWeight: 300, fontFamily: KAITI_FONT}}>
                   {m.targetWord}
-                  {m.type === 'word' && <span style={{fontSize: '1.3rem', color: '#7f8c8d', marginLeft: '10px'}}>（{m.word}）</span>}
-                  {m.type === 'flower' && <span style={{fontSize: '1.3rem', color: '#7f8c8d', marginLeft: '10px'}}>（{m.words.join('、')}）</span>}
+                  {(m.type === 'word' || m.type === 'flower') && m.word && <WordChip word={m.word} target={m.targetWord} fontFamily={KAITI_FONT} />}
                 </div>
                 <div style={{fontSize: '1.5rem', color: '#d6b75a', backgroundColor: '#4a4a4a', padding: '5px 15px', borderRadius: '5px'}}>
                   {dictCache[m.targetWord].readings[0].bopomofo}
@@ -509,10 +528,10 @@ const VocabGame = ({ user, userData, onBack }) => {
 const styles = {
   container: { width: '100%', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif' },
   card: { padding: '30px', textAlign: 'center', backgroundColor: '#f2efeb' },
-  title: { fontSize: '2.2rem', color: '#4a4a4a', borderBottom: '4px dashed #4a4a4a', paddingBottom: '15px', marginBottom: '20px' },
+  title: { fontSize: 'clamp(1.6rem, 6.5vw, 2.2rem)', color: '#4a4a4a', borderBottom: '4px dashed #4a4a4a', paddingBottom: '15px', marginBottom: '20px' },
   desc: { fontSize: '1.3rem', color: '#4a4a4a', marginBottom: '30px' },
   btnGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
-  actionBtn: { padding: '15px', fontSize: '1.5rem', width: '100%' },
+  actionBtn: { padding: '15px', fontSize: 'clamp(1.1rem, 4.6vw, 1.5rem)', width: '100%' },
   
   flashcard: { position: 'relative', minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '20px 0', border: '8px solid #4a4a4a', cursor: 'pointer', transition: 'background-color 0.2s' },
   cardHint: { position: 'absolute', top: '15px', width: '100%', textAlign: 'center', fontSize: '1.1rem', color: '#7f8c8d' },
@@ -527,9 +546,9 @@ const styles = {
   defItem: { fontSize: '1.15rem', color: '#4a4a4a', marginBottom: '6px', lineHeight: '1.5' },
   typeTag: { display: 'inline-block', fontSize: '0.85rem', backgroundColor: '#6e85b7', color: '#fff', padding: '0 6px', marginRight: '6px', borderRadius: '3px' },
   defExample: { fontSize: '1rem', color: '#7f8c8d' },
-  wordsRow: { width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '15px', textAlign: 'left', fontSize: '1.15rem' },
-  wordChip: { backgroundColor: '#e8f4f8', border: '2px solid #6e85b7', padding: '2px 10px', fontFamily: KAITI_FONT, fontSize: '1.3rem' },
-  flowerSection: { width: '100%', marginTop: '15px' },
+  wordsRow: { width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: '4px', marginTop: '15px' },
+  flowerSection: { width: '100%', marginTop: '20px', paddingTop: '15px', borderTop: '2px dashed #d6b75a' },
+  flowerHint: { fontSize: '0.95rem', color: '#7f8c8d', marginBottom: '6px' },
   flowerTitle: { fontWeight: 'bold', color: '#c0392b', fontSize: '1.2rem', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' },
   inlineIcon: { height: '1.4em', verticalAlign: 'middle', marginRight: '6px' },
   badgeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', margin: '15px 0' },
@@ -543,9 +562,9 @@ const styles = {
   newBadge: { width: '140px', backgroundColor: '#fff', border: '3px solid #4a4a4a', padding: '10px 6px' },
   sourceNote: { width: '100%', marginTop: '15px', fontSize: '0.8rem', color: '#95a5a6', textAlign: 'right' },
   
-  quizPromptBox: { padding: '20px', backgroundColor: '#e8e8e8', fontSize: '1.5rem', color: '#4a4a4a', border: '4px solid #4a4a4a', margin: '20px 0', fontWeight: 'bold' },
-  quizTargetWord: { fontSize: '2.5rem', color: '#c0392b', fontFamily: KAITI_FONT, fontWeight: 300 },
-  quizBopomofo: { fontSize: '2rem', color: '#c0392b', backgroundColor: '#fff', padding: '2px 12px', border: '2px solid #c0392b' },
+  quizPromptBox: { padding: 'clamp(12px, 3vw, 20px)', backgroundColor: '#e8e8e8', fontSize: 'clamp(1.05rem, 4.2vw, 1.5rem)', lineHeight: 1.8, color: '#4a4a4a', border: '4px solid #4a4a4a', margin: '20px 0', fontWeight: 'bold' },
+  quizTargetWord: { fontSize: 'clamp(1.6rem, 7vw, 2.4rem)', color: '#c0392b', fontFamily: KAITI_FONT, fontWeight: 300 },
+  quizBopomofo: { fontSize: 'clamp(1.15rem, 5vw, 1.7rem)', color: '#c0392b', backgroundColor: '#fff', padding: '1px 8px', border: '2px solid #c0392b', whiteSpace: 'nowrap' },
   optionBtnChar: { fontSize: 'clamp(2.2rem, 10vw, 3.2rem)', padding: '15px 6px', lineHeight: '1.2', fontFamily: KAITI_FONT, fontWeight: 300 },
   optionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' },
   optionBtnBopo: { fontSize: 'clamp(1.1rem, 5vw, 1.8rem)', padding: '25px 6px', lineHeight: '1.3' },

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { loadStrokes } from '../utils/strokeData';
 
 // 依教育部標準筆順逐筆描寫的動畫。資料由 scripts/build-strokes.js 產生在 public/strokes/。
 // 每一筆：d 是筆畫外框（裁切範圍），t 是中心線軌跡 [[x, y, size], ...]，座標系 2048×2048。
@@ -17,11 +18,7 @@ const StrokeOrder = ({ char, size = 180, fontFamily }) => {
 
   useEffect(() => {
     let cancelled = false;
-    const hex = char.codePointAt(0).toString(16);
-    fetch(`${import.meta.env.BASE_URL}strokes/${hex}.json`)
-      .then((res) => (res.ok ? res.json() : null))
-      .catch(() => null)
-      .then((data) => { if (!cancelled) setLoaded({ char, strokes: data }); });
+    loadStrokes(char).then((data) => { if (!cancelled) setLoaded({ char, strokes: data }); });
     return () => { cancelled = true; };
   }, [char]);
 
