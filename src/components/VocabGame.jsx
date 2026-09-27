@@ -1,192 +1,243 @@
-import React, { useState, useEffect } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { VOCAB_LIST } from '../data/vocabData';
+import { VOCAB_LIST } from '../data/vocabdata';
 import moneyIconImg from '../assets/money.png';
+import StrokeOrder from './StrokeOrder';
+import { todayNumber, shuffle, summarize, mistakeChars, cardTag, pickRound, applyResult, MASTERED_LEVEL } from '../utils/vocabProgress';
+import { buildIndexes, makeQuestion } from '../utils/vocabQuiz';
 
 // 🌟 生字本體改用楷體風格字型（跨平台的 LXGW WenKai TC），筆順字形比一般黑體更貼近課本教學
 const KAITI_FONT = '"LXGW WenKai TC", "標楷體", "DFKai-SB", serif';
 
+const SOURCE_LABELS = {
+  moedict: '教育部《重編國語辭典修訂本》',
+  variant: '教育部《重編國語辭典修訂本》',
+  crossStrait: '教育部《兩岸常用詞典》',
+  unihan: 'Unicode 漢字資料庫（僅讀音）',
+  manual: '老師補充',
+  mini: '教育部《國語小字典》',
+};
+
+// 🌟 字卡背面：標準筆順動畫、部首筆畫、每個讀音的字義，以及常用詞
+const CardBack = ({ char, info }) => {
+  if (!info) return null;
+  const sources = [...new Set(info.readings.map(r => SOURCE_LABELS[r.defSource === 'mini' ? 'mini' : r.source]).filter(Boolean))];
+
+  return (
+    <div style={styles.cardBack}>
+      <div style={styles.cardHint}>👉 點擊空白處翻回正面</div>
+
+      <div style={styles.backHeader}>
+        <StrokeOrder char={char} size={170} fontFamily={KAITI_FONT} />
+        <div style={styles.backMeta}>
+          {info.radical && <div>部首：<b style={{fontFamily: KAITI_FONT}}>{info.radical}</b></div>}
+          {info.strokes && <div>總筆畫：<b>{info.strokes}</b> 畫</div>}
+          {info.variantOf && <div style={{color: '#7f8c8d'}}>「{char}」是「<span style={{fontFamily: KAITI_FONT}}>{info.variantOf}</span>」的異體字</div>}
+        </div>
+      </div>
+
+      <div style={styles.readingsContainer}>
+        {info.readings.map((r, i) => (
+          <div key={i} style={styles.readingBlock}>
+            <span style={styles.zhuyinBadge}>{r.bopomofo}</span>
+            {r.defs.length > 0 ? (
+              <ol style={styles.defList}>
+                {r.defs.slice(0, 3).map((d, j) => (
+                  <li key={j} style={styles.defItem}>
+                    {d.type && <span style={styles.typeTag}>{d.type}</span>}
+                    {d.def}
+                    {d.example && <div style={styles.defExample}>{d.example}</div>}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div style={{...styles.defItem, color: '#95a5a6', marginTop: '8px'}}>（此讀音暫無字義資料）</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {info.words.length > 0 && (
+        <div style={styles.wordsRow}>
+          <span style={{fontWeight: 'bold', color: '#6e85b7'}}>💡 常用詞：</span>
+          {info.words.map(w => <span key={w} style={styles.wordChip}>{w}</span>)}
+        </div>
+      )}
+
+      <div style={styles.sourceNote}>字音字義：{sources.join('、')}｜筆順：教育部《常用國字標準字體筆順》</div>
+    </div>
+  );
+};
+
+const TAG_LABELS = {
+  new: { text: '🆕 新字', color: '#6e85b7' },
+  review: { text: '🔁 複習', color: '#8ca279' },
+  mistake: { text: '📕 錯字', color: '#c0392b' },
+};
+
+const LEVELS = {
+  easy: { name: '初階修練 (1-1000字)', min: 0, max: 1000, reward: 2 },
+  medium: { name: '中階修練 (1001-2500字)', min: 1000, max: 2500, reward: 10 },
+  hard: { name: '高階修練 (2501-5021字)', min: 2500, max: VOCAB_LIST.length, reward: 15 },
+};
+const LEVEL_CHARS = Object.fromEntries(
+  Object.entries(LEVELS).map(([key, level]) => [key, [...new Set(VOCAB_LIST.slice(level.min, level.max))]]),
+);
+const MISTAKE_MODE = { name: '錯字本複習', reward: 5, isMistakes: true };
+const ROUND_SIZE = 20;
+
 const VocabGame = ({ user, userData, onBack }) => {
-  const [gameState, setGameState] = useState('menu'); 
+  const [gameState, setGameState] = useState('menu');
   const [targetWords, setTargetWords] = useState([]);
-  const [dictCache, setDictCache] = useState({}); 
-  
+  const [dictCache, setDictCache] = useState({});
+  const [cardTags, setCardTags] = useState({});
+
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  
+
   const [questions, setQuestions] = useState([]);
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [mistakes, setMistakes] = useState([]); 
-  const [isFirstRound, setIsFirstRound] = useState(true); 
-  const [firstTryScore, setFirstTryScore] = useState(0);
-  const [coinsEarned, setCoinsEarned] = useState(0);
+  const [mistakes, setMistakes] = useState([]);
+  const [isFirstRound, setIsFirstRound] = useState(true);
+  const [firstTryResults, setFirstTryResults] = useState({});
+  const [roundSummary, setRoundSummary] = useState(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const LEVELS = {
-    easy: { name: '初階修練 (1-1000字)', min: 0, max: Math.min(1000, VOCAB_LIST.length), reward: 2 },
-    medium: { name: '中階修練 (1001-2500字)', min: Math.min(1001, VOCAB_LIST.length - 1), max: Math.min(2500, VOCAB_LIST.length), reward: 10 },
-    hard: { name: '高階修練 (2501-5021字)', min: Math.min(2501, VOCAB_LIST.length - 1), max: VOCAB_LIST.length, reward: 15 }
-  };
   const [selectedLevel, setSelectedLevel] = useState(null);
-  const fallbackBopo = ['ㄉㄚˋ', 'ㄒㄧㄠˇ', 'ㄏㄠˇ', 'ㄕㄨㄟˇ', 'ㄇㄨˋ', 'ㄏㄨㄛˇ', 'ㄊㄧㄢ', 'ㄖㄣˊ', 'ㄕㄢ', 'ㄕˊ'];
+  const [today] = useState(todayNumber);
+  const quizContext = useRef(null);
+
+  // 🌟 識字進度存在學生自己的 users 文件（vocab 欄位），StudentHome 即時監聽，存完會自動更新
+  const progress = useMemo(() => userData.vocab || {}, [userData.vocab]);
+  const mistakeList = useMemo(() => mistakeChars(progress), [progress]);
 
   const startGame = async (levelKey) => {
-    const level = LEVELS[levelKey];
-    setSelectedLevel(level);
-    
-    const availableWords = VOCAB_LIST.slice(level.min, level.max);
-    if (availableWords.length < 20) return alert("⚠️ 此難度的字庫數量不足 20 字喔！");
-
-    let picked = [];
-    while (picked.length < 20) {
-      const randomWord = availableWords[Math.floor(Math.random() * availableWords.length)];
-      if (!picked.includes(randomWord)) picked.push(randomWord);
+    const level = levelKey === 'mistakes' ? MISTAKE_MODE : LEVELS[levelKey];
+    const now = todayNumber();
+    let picked;
+    let poolMax;
+    if (level.isMistakes) {
+      picked = shuffle(mistakeList.slice(0, ROUND_SIZE));
+      poolMax = Math.max(LEVELS.easy.max, ...picked.map(c => VOCAB_LIST.indexOf(c) + 1));
+    } else {
+      picked = pickRound(LEVEL_CHARS[levelKey], progress, now, ROUND_SIZE);
+      poolMax = level.max;
     }
-    
+    if (picked.length === 0) return alert("錯字本目前是空的，太厲害了！");
+
+    setSelectedLevel(level);
+    setGameState('loading');
+
+    // 🌟 字音字義改讀事先建好的本地字典（scripts/build-dict.js 產生），不再即時連萌典，避免查無讀音或連線失敗
+    let dict;
+    try {
+      dict = (await import('../data/dictData.json')).default;
+    } catch (error) {
+      console.error("字典資料載入失敗", error);
+      alert("字卡資料載入失敗，請確認網路連線後再試一次！");
+      setGameState('menu');
+      return;
+    }
+
+    picked = picked.filter(c => dict[c]);
+    // 🌟 錯誤選項只從「同級或更簡單」的字挑，避免出現學生沒學過的罕用字
+    quizContext.current = { dict, idx: buildIndexes(dict, [...new Set(VOCAB_LIST.slice(0, poolMax))]) };
+
+    const newCache = {};
+    for (const word of picked) {
+      const entry = dict[word];
+      newCache[word] = {
+        bopomofo: [...new Set(entry.readings.map(r => r.bopomofo))].join(' / '),
+        readings: entry.readings,
+        words: entry.words,
+        radical: entry.radical || '',
+        strokes: entry.strokes || null,
+        variantOf: entry.variantOf || null,
+      };
+    }
+
     setTargetWords(picked);
-    setGameState('loading'); 
-
-    let newCache = {};
-    await Promise.all(picked.map(async (word) => {
-      try {
-        const res = await fetch(`https://www.moedict.tw/a/${encodeURIComponent(word)}.json`);
-        if (res.ok) {
-          const data = await res.json();
-          let bopoArray = [];
-          let examples = [];
-          
-          if (data.h && data.h.length > 0) {
-            for (let entry of data.h) {
-              if (entry.b) {
-                let cleanBopo = entry.b.replace(/<[^>]*>?/gm, '').replace(/[~`]/g, '').trim();
-                if (cleanBopo && !bopoArray.includes(cleanBopo)) {
-                  bopoArray.push(cleanBopo);
-                }
-              }
-              const defs = entry.d || [];
-              for (let d of defs) {
-                if (d.e && d.e.length > 0) examples.push(...d.e);
-                else if (d.f) examples.push(d.f);
-              }
-            }
-          }
-
-          const cleanExamples = examples
-            .map(ex => ex.replace(/<[^>]*>?/gm, '').replace(/[~`]/g, ''))
-            .filter((v, i, a) => a.indexOf(v) === i) 
-            .slice(0, 3);
-
-          newCache[word] = { 
-            bopomofo: bopoArray.join(' / ') || '無讀音', 
-            examples: cleanExamples 
-          };
-        } else {
-          newCache[word] = { bopomofo: '查無讀音', examples: [] };
-        }
-      } catch (error) {
-        newCache[word] = { bopomofo: '連線錯誤', examples: [] };
-      }
-    }));
-
     setDictCache(newCache);
+    setCardTags(Object.fromEntries(picked.map(c => [c, cardTag(progress[c])])));
     setCurrentCardIndex(0);
     setIsFlipped(false);
-    setFirstTryScore(0);
-    setCoinsEarned(0);
+    setFirstTryResults({});
+    setRoundSummary(null);
     setIsFirstRound(true);
     setMistakes([]);
     setGameState('flashcard');
   };
 
   const startQuiz = () => {
-    const generatedQuestions = targetWords.map(target => {
-      const correctBopo = dictCache[target].bopomofo;
-      let options = [correctBopo];
-      
-      // 先打亂其他字的注音，確保每次抓到的干擾選項不一樣
-      const otherBopos = targetWords
-        .map(w => dictCache[w].bopomofo)
-        .filter(b => b !== correctBopo)
-        .sort(() => Math.random() - 0.5); 
-        
-      // 🌟 關鍵修復：湊滿 4 個選項就立刻踩煞車 (break)
-      for (let b of otherBopos) {
-        if (options.length >= 4) break; 
-        if (!options.includes(b)) options.push(b);
-      }
-      
-      // 如果這 20 個字音重複太高，導致選項還是不夠 4 個，再用備用注音補齊
-      for (let fb of fallbackBopo) {
-        if (options.length >= 4) break;
-        if (!options.includes(fb)) options.push(fb);
-      }
-      return { targetWord: target, options: options.sort(() => Math.random() - 0.5) }; 
-    });
-    
-    setQuestions(generatedQuestions.sort(() => Math.random() - 0.5)); 
+    const { dict, idx } = quizContext.current;
+    setQuestions(shuffle(targetWords.map(c => makeQuestion(c, dict, idx))));
     setCurrentQuizIndex(0);
     setMistakes([]);
     setGameState('quiz');
   };
 
-  const handleAnswer = (selectedBopo) => {
+  const handleAnswer = (selected) => {
     const currentQ = questions[currentQuizIndex];
-    const correctBopo = dictCache[currentQ.targetWord].bopomofo;
-    const isCorrect = (selectedBopo === correctBopo);
+    const isCorrect = selected === currentQ.answer;
 
-    if (isCorrect && isFirstRound) {
-      setFirstTryScore(prev => prev + 1); 
-    }
+    // 🌟 直接把最新結果傳給 finishGame，避免最後一題的結果還沒寫進 state 就結算
+    const updatedResults = isFirstRound ? { ...firstTryResults, [currentQ.targetWord]: isCorrect } : firstTryResults;
+    if (isFirstRound) setFirstTryResults(updatedResults);
 
-    const updatedMistakes = !isCorrect ? [...mistakes, currentQ] : mistakes;
-    if (!isCorrect) {
-      setMistakes(updatedMistakes);
-    }
-    
+    const updatedMistakes = isCorrect ? mistakes : [...mistakes, currentQ];
+    if (!isCorrect) setMistakes(updatedMistakes);
+
     if (currentQuizIndex < questions.length - 1) {
       setCurrentQuizIndex(prev => prev + 1);
+    } else if (updatedMistakes.length > 0) {
+      setGameState('reviewMistakes');
     } else {
-      if (updatedMistakes.length > 0) {
-        setGameState('reviewMistakes');
-      } else {
-        finishGame();
-      }
+      finishGame(updatedResults);
     }
   };
 
   const handleRetryMistakes = () => {
-    const newQuestions = mistakes.map(m => ({
-      ...m,
-      options: m.options.sort(() => Math.random() - 0.5)
-    }));
-    
-    setQuestions(newQuestions.sort(() => Math.random() - 0.5));
+    setQuestions(shuffle(mistakes.map(m => ({ ...m, options: shuffle(m.options) }))));
     setMistakes([]);
     setCurrentQuizIndex(0);
-    setIsFirstRound(false); 
+    setIsFirstRound(false);
     setGameState('quiz');
   };
 
-  const finishGame = async () => {
+  const finishGame = async (results) => {
     setGameState('result');
     setIsSubmitting(true);
 
+    const now = todayNumber();
+    const score = targetWords.filter(c => results[c]).length;
     // 🌟 比照 Quiz.jsx：依「第一次作答」的正確率等比例發放獎勵，而非只要通關就給全額
-    const ratio = targetWords.length > 0 ? firstTryScore / targetWords.length : 0;
-    const coins = Math.max(0, Math.round(selectedLevel.reward * ratio));
-    setCoinsEarned(coins);
+    const coins = Math.max(0, Math.round(selectedLevel.reward * (score / targetWords.length)));
+
+    const updates = {};
+    let newChars = 0;
+    let newlyMastered = 0;
+    let toMistakeBook = 0;
+    for (const c of targetWords) {
+      const before = progress[c];
+      const after = applyResult(before, results[c] === true, now);
+      updates[`vocab.${c}`] = after;
+      if (!before) newChars++;
+      if (after.b >= MASTERED_LEVEL && (!before || before.b < MASTERED_LEVEL)) newlyMastered++;
+      if (after.b === 0) toMistakeBook++;
+    }
+    setRoundSummary({ score, coins, newChars, newlyMastered, toMistakeBook });
 
     try {
-      const newCoins = (userData.coins || 0) + coins;
-      await updateDoc(doc(db, "users", user.uid), { coins: newCoins });
-      userData.coins = newCoins;
+      await updateDoc(doc(db, "users", user.uid), { coins: (userData.coins || 0) + coins, ...updates });
     } catch (error) {
-      console.error("金幣發放失敗", error);
+      console.error("識字進度儲存失敗", error);
+      alert("進度儲存失敗，請確認網路連線！");
     }
     setIsSubmitting(false);
   };
+
+  const q = questions[currentQuizIndex];
 
   return (
     <div style={styles.container}>
@@ -194,13 +245,31 @@ const VocabGame = ({ user, userData, onBack }) => {
       {gameState === 'menu' && (
         <div className="pixel-card" style={styles.card}>
           <h2 style={styles.title}>📖 識字修練場</h2>
-          <p style={styles.desc}>記住字音與造詞，測驗需全對才能通關。答錯沒關係，系統會讓你反覆練習直到學會為止！</p>
+          <p style={styles.desc}>每局 {ROUND_SIZE} 字：還沒學過的新字、到期該複習的字會優先出現；答錯的字會收進錯字本，隔天再挑戰！</p>
           <div style={styles.btnGroup}>
-            {Object.entries(LEVELS).map(([key, level]) => (
-              <button key={key} className="pixel-btn btn-blue" style={styles.actionBtn} onClick={() => startGame(key)}>
-                {level.name} <br/><span style={{fontSize:'1.1rem', color:'#dcdfdc'}}>🎁 最高獎勵 {level.reward} 金幣</span>
-              </button>
-            ))}
+            {Object.entries(LEVELS).map(([key, level]) => {
+              const s = summarize(progress, LEVEL_CHARS[key], today);
+              return (
+                <button key={key} className="pixel-btn btn-blue" style={styles.actionBtn} onClick={() => startGame(key)}>
+                  {level.name}
+                  <div style={styles.progressBar}>
+                    <div style={{...styles.progressFill, width: `${(s.mastered / s.total) * 100}%`}} />
+                  </div>
+                  <span style={styles.progressText}>
+                    ✅ 已掌握 {s.mastered} / {s.total} 字{s.due > 0 ? `・🔁 待複習 ${s.due} 字` : ''}・🎁 最高 {level.reward} 金幣
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              className={`pixel-btn ${mistakeList.length > 0 ? 'btn-red' : 'btn-gray'}`}
+              style={styles.actionBtn}
+              disabled={mistakeList.length === 0}
+              onClick={() => startGame('mistakes')}
+            >
+              📕 錯字本複習（{mistakeList.length} 字）
+              <br /><span style={styles.progressText}>{mistakeList.length > 0 ? `答對就能移出錯字本・🎁 最高 ${MISTAKE_MODE.reward} 金幣` : '目前沒有錯字，太棒了！'}</span>
+            </button>
           </div>
           <button className="pixel-btn btn-gray" style={{...styles.actionBtn, marginTop: '30px'}} onClick={onBack}>⬅ 返回主頁</button>
         </div>
@@ -216,42 +285,35 @@ const VocabGame = ({ user, userData, onBack }) => {
       {/* 3. 閃卡畫面 */}
       {gameState === 'flashcard' && (
         <div className="pixel-card" style={styles.card}>
-          <h3 style={{color: '#4a4a4a', margin: '0 0 10px 0'}}>🧠 記憶時間 ({currentCardIndex + 1}/20)</h3>
-          
-          <div 
-            className="pixel-box" 
-            style={{...styles.flashcard, backgroundColor: isFlipped ? '#f9f9f9' : '#ffffff'}} 
+          <h3 style={{color: '#4a4a4a', margin: '0 0 10px 0'}}>
+            🧠 記憶時間 ({currentCardIndex + 1}/{targetWords.length})
+            {cardTags[targetWords[currentCardIndex]] && (
+              <span style={{...styles.cardTag, backgroundColor: TAG_LABELS[cardTags[targetWords[currentCardIndex]]].color}}>
+                {TAG_LABELS[cardTags[targetWords[currentCardIndex]]].text}
+              </span>
+            )}
+          </h3>
+
+          <div
+            className="pixel-box"
+            style={{...styles.flashcard, backgroundColor: isFlipped ? '#f9f9f9' : '#ffffff'}}
             onClick={() => setIsFlipped(!isFlipped)}
           >
             {!isFlipped ? (
               <>
-                <div style={styles.cardHint}>👉 點擊翻面查看讀音與造詞</div>
+                <div style={styles.cardHint}>👉 點擊翻面查看讀音、筆順與字義</div>
                 <div style={styles.cardWordBig}>{targetWords[currentCardIndex]}</div>
               </>
             ) : (
-              <div style={styles.cardBack}>
-                <div style={styles.cardHint}>👉 點擊翻回正面</div>
-                <div style={styles.wordHeader}>
-                  <div style={styles.cardWordSmall}>{targetWords[currentCardIndex]}</div>
-                  <div style={styles.zhuyinBadge}>
-                    讀音：{dictCache[targetWords[currentCardIndex]]?.bopomofo}
-                  </div>
-                </div>
-                <div style={styles.examplesContainer}>
-                  <div style={styles.exampleTitle}>💡 補充造詞 / 解釋：</div>
-                  {dictCache[targetWords[currentCardIndex]]?.examples?.map((ex, i) => (
-                      <div key={i} style={styles.exampleItem}>• {ex}</div>
-                  ))}
-                </div>
-              </div>
+              <CardBack char={targetWords[currentCardIndex]} info={dictCache[targetWords[currentCardIndex]]} />
             )}
           </div>
 
           <div style={{display: 'flex', gap: '15px', justifyContent: 'center', width: '100%'}}>
             {currentCardIndex > 0 && (
-              <button 
-                className="pixel-btn btn-gray" 
-                style={{...styles.actionBtn, flex: 1}} 
+              <button
+                className="pixel-btn btn-gray"
+                style={{...styles.actionBtn, flex: 1}}
                 onClick={() => {
                   setCurrentCardIndex(prev => prev - 1);
                   setIsFlipped(false);
@@ -260,14 +322,14 @@ const VocabGame = ({ user, userData, onBack }) => {
                 ⬅ 上一個字
               </button>
             )}
-            
-            {currentCardIndex < 19 ? (
-              <button 
-                className="pixel-btn btn-yellow" 
-                style={{...styles.actionBtn, flex: currentCardIndex === 0 ? 'none' : 1, width: currentCardIndex === 0 ? '100%' : 'auto'}} 
+
+            {currentCardIndex < targetWords.length - 1 ? (
+              <button
+                className="pixel-btn btn-yellow"
+                style={{...styles.actionBtn, flex: currentCardIndex === 0 ? 'none' : 1, width: currentCardIndex === 0 ? '100%' : 'auto'}}
                 onClick={() => {
                   setCurrentCardIndex(prev => prev + 1);
-                  setIsFlipped(false); 
+                  setIsFlipped(false);
                 }}
               >
                 下一個字 ➔
@@ -281,21 +343,28 @@ const VocabGame = ({ user, userData, onBack }) => {
         </div>
       )}
 
-      {/* 4. 測驗畫面 */}
-      {gameState === 'quiz' && (
+      {/* 4. 測驗畫面：看字選音／看音選字／詞語填空 */}
+      {gameState === 'quiz' && q && (
         <div className="pixel-card" style={styles.card}>
           <h3 style={{color: '#4a4a4a', margin: '0 0 10px 0'}}>
-            🎯 {isFirstRound ? '讀音大考驗' : '補考時間'} ({currentQuizIndex + 1}/{questions.length})
+            🎯 {isFirstRound ? '識字大考驗' : '補考時間'} ({currentQuizIndex + 1}/{questions.length})
           </h3>
-          
+
           <div style={styles.quizPromptBox}>
-            請問 <span style={styles.quizTargetWord}>「{questions[currentQuizIndex].targetWord}」</span> 的讀音是什麼？
+            {q.type === 'reading' && <>請問 <span style={styles.quizTargetWord}>「{q.prompt}」</span> 的讀音是什麼？</>}
+            {q.type === 'char' && <>讀音 <span style={styles.quizBopomofo}>{q.prompt}</span> 是哪一個字？</>}
+            {q.type === 'word' && <>哪一個字可以填進 <span style={styles.quizTargetWord}>「{q.prompt}」</span>？</>}
           </div>
-          
+
           {/* 🌟 測驗選項區塊，維持完美的 2x2 網格 */}
           <div style={styles.optionsGrid}>
-            {questions[currentQuizIndex].options.map((opt, idx) => (
-              <button key={idx} className="pixel-btn btn-blue" style={styles.optionBtnBopo} onClick={() => handleAnswer(opt)}>
+            {q.options.map((opt, idx) => (
+              <button
+                key={idx}
+                className="pixel-btn btn-blue"
+                style={q.type === 'reading' ? styles.optionBtnBopo : styles.optionBtnChar}
+                onClick={() => handleAnswer(opt)}
+              >
                 {opt}
               </button>
             ))}
@@ -306,20 +375,23 @@ const VocabGame = ({ user, userData, onBack }) => {
       {/* 5. 錯誤複習畫面 */}
       {gameState === 'reviewMistakes' && (
         <div className="pixel-card" style={styles.card}>
-          <h2 style={{...styles.title, color: '#c0392b'}}>😵 哎呀！有幾個字音要再記一下喔！</h2>
+          <h2 style={{...styles.title, color: '#c0392b'}}>😵 哎呀！有幾個字要再記一下喔！</h2>
           <p style={{fontSize: '1.2rem'}}>先複習一下剛剛答錯的 {mistakes.length} 個字，確認記起來後再挑戰一次！</p>
-          
+
           <div style={styles.mistakeList}>
             {mistakes.map((m, idx) => (
               <div key={idx} style={styles.mistakeItem}>
-                <div style={{fontSize: '2rem', fontWeight: 300, fontFamily: KAITI_FONT}}>{m.targetWord}</div>
+                <div style={{fontSize: '2rem', fontWeight: 300, fontFamily: KAITI_FONT}}>
+                  {m.targetWord}
+                  {m.type === 'word' && <span style={{fontSize: '1.3rem', color: '#7f8c8d', marginLeft: '10px'}}>（{m.word}）</span>}
+                </div>
                 <div style={{fontSize: '1.5rem', color: '#d6b75a', backgroundColor: '#4a4a4a', padding: '5px 15px', borderRadius: '5px'}}>
-                  {dictCache[m.targetWord].bopomofo}
+                  {dictCache[m.targetWord].readings[0].bopomofo}
                 </div>
               </div>
             ))}
           </div>
-          
+
           <button className="pixel-btn btn-red" style={styles.actionBtn} onClick={handleRetryMistakes}>
             ⚔️ 我記起來了，再次挑戰！
           </button>
@@ -327,27 +399,33 @@ const VocabGame = ({ user, userData, onBack }) => {
       )}
 
       {/* 6. 結算畫面 */}
-      {gameState === 'result' && (
+      {gameState === 'result' && roundSummary && (
         <div className="pixel-card" style={styles.card}>
           <h2 style={styles.title}>🎉 完美通關</h2>
           <div className="pixel-box" style={styles.scoreBox}>
-            第一次作答正確數：<span style={{fontSize:'2.5rem', fontWeight:'bold', color:'#8ca279'}}>{firstTryScore}</span> / {targetWords.length}
+            第一次作答正確數：<span style={{fontSize:'2.5rem', fontWeight:'bold', color:'#8ca279'}}>{roundSummary.score}</span> / {targetWords.length}
+
+            <div style={styles.summaryRow}>
+              <span style={styles.summaryChip}>🆕 新學 {roundSummary.newChars} 字</span>
+              <span style={styles.summaryChip}>🏆 新掌握 {roundSummary.newlyMastered} 字</span>
+              <span style={styles.summaryChip}>📕 收進錯字本 {roundSummary.toMistakeBook} 字</span>
+            </div>
 
             <div style={{marginTop: '20px'}}>
-              {coinsEarned > 0 ? (
+              {roundSummary.coins > 0 ? (
                 <div style={{color: '#d6b75a', fontSize: '1.5rem', fontWeight: 'bold'}}>
-                  太棒了！你克服了所有錯題，成功獲得 <img src={moneyIconImg} alt="money" style={styles.moneyIcon} /> {coinsEarned} 金幣！
+                  太棒了！你克服了所有錯題，成功獲得 <img src={moneyIconImg} alt="money" style={styles.moneyIcon} /> {roundSummary.coins} 金幣！
                 </div>
               ) : (
                 <div style={{color: '#b97a7a', fontSize: '1.3rem'}}>
-                  😢 這次第一次作答對率較低，沒有獲得金幣，多熟悉幾次讀音下次就能拿到獎勵囉！
+                  😢 這次第一次作答對率較低，沒有獲得金幣，多熟悉幾次下次就能拿到獎勵囉！
                 </div>
               )}
             </div>
           </div>
-          
+
           <div style={styles.btnGroup}>
-            <button className="pixel-btn btn-blue" style={styles.actionBtn} onClick={() => setGameState('menu')} disabled={isSubmitting}>挑選新字庫</button>
+            <button className="pixel-btn btn-blue" style={styles.actionBtn} onClick={() => setGameState('menu')} disabled={isSubmitting}>回修練場選單</button>
             <button className="pixel-btn btn-gray" style={styles.actionBtn} onClick={onBack} disabled={isSubmitting}>回首頁</button>
           </div>
         </div>
@@ -367,16 +445,24 @@ const styles = {
   flashcard: { position: 'relative', minHeight: '320px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', margin: '20px 0', border: '8px solid #4a4a4a', cursor: 'pointer', transition: 'background-color 0.2s' },
   cardHint: { position: 'absolute', top: '15px', width: '100%', textAlign: 'center', fontSize: '1.1rem', color: '#7f8c8d' },
   cardWordBig: { fontSize: '9rem', fontWeight: 300, color: '#2c3e50', marginTop: '20px', fontFamily: KAITI_FONT },
-  cardBack: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 20px 20px 20px', boxSizing: 'border-box' },
-  wordHeader: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '20px' },
-  cardWordSmall: { fontSize: '4.5rem', fontWeight: 300, color: '#4a4a4a', marginBottom: '10px', fontFamily: KAITI_FONT },
-  zhuyinBadge: { backgroundColor: '#d6b75a', color: '#4a4a4a', padding: '8px 15px', fontSize: '1.5rem', fontWeight: 'bold', border: '2px solid #4a4a4a' },
-  examplesContainer: { width: '100%', textAlign: 'left', padding: '0 10px' },
-  exampleTitle: { fontSize: '1.4rem', color: '#6e85b7', fontWeight: 'bold', marginBottom: '10px', borderBottom: '2px solid #6e85b7', paddingBottom: '5px' },
-  exampleItem: { fontSize: '1.3rem', color: '#4a4a4a', marginBottom: '12px', lineHeight: '1.4' },
+  cardBack: { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '45px 15px 15px 15px', boxSizing: 'border-box' },
+  backHeader: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', gap: '20px', marginBottom: '15px' },
+  backMeta: { display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '1.2rem', color: '#4a4a4a', textAlign: 'left' },
+  readingsContainer: { width: '100%', display: 'flex', flexDirection: 'column', gap: '12px', textAlign: 'left' },
+  readingBlock: { backgroundColor: '#fff', border: '2px solid #d6b75a', padding: '10px 12px' },
+  zhuyinBadge: { display: 'inline-block', backgroundColor: '#d6b75a', color: '#4a4a4a', padding: '4px 12px', fontSize: '1.4rem', fontWeight: 'bold', border: '2px solid #4a4a4a' },
+  defList: { margin: '8px 0 0 0', paddingLeft: '1.4em' },
+  defItem: { fontSize: '1.15rem', color: '#4a4a4a', marginBottom: '6px', lineHeight: '1.5' },
+  typeTag: { display: 'inline-block', fontSize: '0.85rem', backgroundColor: '#6e85b7', color: '#fff', padding: '0 6px', marginRight: '6px', borderRadius: '3px' },
+  defExample: { fontSize: '1rem', color: '#7f8c8d' },
+  wordsRow: { width: '100%', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginTop: '15px', textAlign: 'left', fontSize: '1.15rem' },
+  wordChip: { backgroundColor: '#e8f4f8', border: '2px solid #6e85b7', padding: '2px 10px', fontFamily: KAITI_FONT, fontSize: '1.3rem' },
+  sourceNote: { width: '100%', marginTop: '15px', fontSize: '0.8rem', color: '#95a5a6', textAlign: 'right' },
   
   quizPromptBox: { padding: '20px', backgroundColor: '#e8e8e8', fontSize: '1.5rem', color: '#4a4a4a', border: '4px solid #4a4a4a', margin: '20px 0', fontWeight: 'bold' },
   quizTargetWord: { fontSize: '2.5rem', color: '#c0392b', fontFamily: KAITI_FONT, fontWeight: 300 },
+  quizBopomofo: { fontSize: '2rem', color: '#c0392b', backgroundColor: '#fff', padding: '2px 12px', border: '2px solid #c0392b' },
+  optionBtnChar: { fontSize: 'clamp(2.2rem, 10vw, 3.2rem)', padding: '15px 6px', lineHeight: '1.2', fontFamily: KAITI_FONT, fontWeight: 300 },
   optionsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' },
   optionBtnBopo: { fontSize: 'clamp(1.1rem, 5vw, 1.8rem)', padding: '25px 6px', lineHeight: '1.3' },
   
@@ -384,6 +470,12 @@ const styles = {
   mistakeItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '15px', border: '2px dashed #4a4a4a' },
   
   scoreBox: { padding: '30px', backgroundColor: '#e8e8e8', margin: '20px 0' },
+  summaryRow: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', marginTop: '15px' },
+  summaryChip: { backgroundColor: '#fff', border: '2px solid #4a4a4a', padding: '4px 10px', fontSize: '1.1rem' },
+  progressBar: { height: '10px', backgroundColor: 'rgba(255,255,255,0.35)', margin: '8px 0 6px', border: '2px solid #2c3e50' },
+  progressFill: { height: '100%', backgroundColor: '#f1c40f' },
+  progressText: { fontSize: '1rem', color: '#f2efeb' },
+  cardTag: { display: 'inline-block', marginLeft: '10px', color: '#fff', fontSize: '0.95rem', padding: '2px 8px', verticalAlign: 'middle' },
   moneyIcon: { height: '30px', objectFit: 'contain', verticalAlign: 'middle' },
 };
 

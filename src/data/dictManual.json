@@ -1,0 +1,23 @@
+{
+  "〇": {
+    "radical": "",
+    "strokes": 1,
+    "readings": [
+      {
+        "bopomofo": "ㄌㄧㄥˊ",
+        "pinyin": "líng",
+        "source": "manual",
+        "defs": [
+          {
+            "type": "名",
+            "def": "數字「零」的寫法，常用於年份或編號。",
+            "example": "如：「二〇二六年」。"
+          }
+        ]
+      }
+    ],
+    "words": [
+      "二〇二六年"
+    ]
+  }
+}

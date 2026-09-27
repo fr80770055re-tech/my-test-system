@@ -33,3 +33,6 @@ public/version.json
 *.njsproj
 *.sln
 *.sw?
+
+# 萌典查詢快取（build-dict.js 產生）
+scripts/.moedict-cache/
