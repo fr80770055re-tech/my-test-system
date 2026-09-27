@@ -1,11 +1,14 @@
-// 識字修練場出題：三種題型，錯誤選項刻意挑「容易搞混但一定是錯的」答案。
+// 識字修練場出題：四種題型，錯誤選項刻意挑「容易搞混但一定是錯的」答案。
 //   reading 看字選音：錯誤選項優先用同音不同調（ㄊㄜˋ → ㄊㄜˊ、ㄊㄜˇ）
 //   char    看音選字：錯誤選項優先用同部首的字，並排除所有同音字，避免一題兩解
 //   word    詞語填空：錯誤選項優先用同音、同部首的字，並排除能組成其他常見詞的字
+//   flower  花瓣識字：花心空白、花瓣是含這個字的詞，錯誤選項放進任何一片花瓣都不能成詞
 import { shuffle } from './vocabProgress.js';
 
 const TONE_MARKS = ['ˊ', 'ˇ', 'ˋ'];
-const TYPE_WEIGHTS = { reading: 4, char: 3, word: 3 };
+const TYPE_WEIGHTS = { reading: 3, char: 3, word: 2, flower: 2 };
+const MIN_PETALS = 3;
+const MAX_PETALS = 5;
 // 「慢慢的走／慢慢地走」兩種寫法都可接受，這兩個字不能互當錯誤選項
 const INTERCHANGEABLE = [['的', '地']];
 const interchangeable = (a, b) => INTERCHANGEABLE.some((pair) => pair.includes(a) && pair.includes(b));
@@ -89,17 +92,33 @@ function wordQuestion(char, entry, dict, idx) {
   return { type: 'word', targetWord: char, prompt, word, answer: char, options: shuffle([char, ...distractors]) };
 }
 
+function flowerQuestion(char, entry, dict, idx) {
+  const words = shuffle(kidWords(entry)).slice(0, MAX_PETALS);
+  const { body } = splitTone(primaryReading(entry));
+  const accept = (c) => c !== char && !interchangeable(c, char)
+    && words.every((w) => !idx.allWords.has(w.replaceAll(char, c)));
+  const distractors = pickDistractors(
+    [idx.byBody.get(body) || [], idx.byRadical.get(entry.radical) || [], shuffle(idx.pool).slice(0, 60)],
+    accept,
+  );
+  return {
+    type: 'flower', targetWord: char, words, petals: words.map((w) => w.replaceAll(char, '＿')),
+    answer: char, options: shuffle([char, ...distractors]),
+  };
+}
+
 export function makeQuestion(char, dict, idx) {
   const entry = dict[char];
   const types = ['reading', 'char'];
-  if (kidWords(entry).length > 0) types.push('word');
+  const wordCount = kidWords(entry).length;
+  if (wordCount > 0) types.push('word');
+  if (wordCount >= MIN_PETALS) types.push('flower');
 
   let roll = Math.random() * types.reduce((sum, t) => sum + TYPE_WEIGHTS[t], 0);
   const type = types.find((t) => (roll -= TYPE_WEIGHTS[t]) < 0) || 'reading';
 
-  const q = type === 'word' ? wordQuestion(char, entry, dict, idx)
-    : type === 'char' ? charQuestion(char, entry, dict, idx)
-      : readingQuestion(char, entry, dict, idx);
+  const builders = { flower: flowerQuestion, word: wordQuestion, char: charQuestion, reading: readingQuestion };
+  const q = builders[type](char, entry, dict, idx);
   // 萬一錯誤選項湊不滿（極少數字），退回最保險的看字選音
   return q.options.length === 4 || type === 'reading' ? q : readingQuestion(char, entry, dict, idx);
 }
