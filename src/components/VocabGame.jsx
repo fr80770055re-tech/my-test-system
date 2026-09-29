@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { VOCAB_LIST } from '../data/vocabdata';
@@ -10,9 +10,20 @@ import flowerIcon from '../assets/plant_flower_pink_01.png';
 import { BADGES, countMastered, updateStats, newlyEarned } from '../utils/badges';
 import { todayNumber, shuffle, summarize, mistakeChars, cardTag, pickRound, applyResult, MASTERED_LEVEL } from '../utils/vocabProgress';
 import { buildIndexes, makeQuestion, familyView } from '../utils/vocabQuiz';
+import { loadDict } from '../utils/dictLoader';
 
 // 🌟 生字本體改用楷體風格字型（跨平台的 LXGW WenKai TC），筆順字形比一般黑體更貼近課本教學
 const KAITI_FONT = '"LXGW WenKai TC", "標楷體", "DFKai-SB", serif';
+const KAITI_CSS = 'https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@300;400&display=swap';
+
+// 🌟 楷體字型只有識字修練場用得到，進來才載入，不拖慢登入頁與學生主頁
+function loadKaitiFont() {
+  if (document.querySelector(`link[href="${KAITI_CSS}"]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = KAITI_CSS;
+  document.head.appendChild(link);
+}
 
 const SOURCE_LABELS = {
   moedict: '教育部《重編國語辭典修訂本》',
@@ -125,6 +136,8 @@ const VocabGame = ({ user, userData, onBack }) => {
   const [today] = useState(todayNumber);
   const quizContext = useRef(null);
 
+  useEffect(() => { loadKaitiFont(); }, []);
+
   // 🌟 識字進度存在學生自己的 users 文件（vocab 欄位），StudentHome 即時監聽，存完會自動更新
   const progress = useMemo(() => userData.vocab || {}, [userData.vocab]);
   const mistakeList = useMemo(() => mistakeChars(progress), [progress]);
@@ -147,12 +160,14 @@ const VocabGame = ({ user, userData, onBack }) => {
     setSelectedLevel(level);
     setGameState('loading');
 
-    // 🌟 字音字義改讀事先建好的本地字典（scripts/build-dict.js 產生），不再即時連萌典，避免查無讀音或連線失敗
+    // 🌟 字典依等級切成小檔，只下載這一局用得到的部分（初階只要前 1000 字）
     let dict;
+    let allWords;
     let components;
     try {
-      const [dictModule, componentModule] = await Promise.all([import('../data/dictData.json'), import('../data/componentData.json')]);
-      dict = dictModule.default;
+      const [loaded, componentModule] = await Promise.all([loadDict(poolMax), import('../data/componentData.json')]);
+      dict = loaded.dict;
+      allWords = loaded.words;
       components = componentModule.default;
     } catch (error) {
       console.error("字典資料載入失敗", error);
@@ -163,7 +178,7 @@ const VocabGame = ({ user, userData, onBack }) => {
 
     picked = picked.filter(c => dict[c]);
     // 🌟 錯誤選項只從「同級或更簡單」的字挑，避免出現學生沒學過的罕用字
-    const idx = buildIndexes(dict, [...new Set(VOCAB_LIST.slice(0, poolMax))], components);
+    const idx = buildIndexes(dict, [...new Set(VOCAB_LIST.slice(0, poolMax))], components, allWords);
     quizContext.current = { dict, idx };
 
     const newCache = {};

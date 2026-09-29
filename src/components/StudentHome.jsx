@@ -1,6 +1,9 @@
-import VocabGame from './VocabGame';
-import MathGame from './MathGame';
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
+
+// 🌟 遊戲點進去才下載，學生主頁先快速顯示
+const VocabGame = lazy(() => import('./VocabGame'));
+const MathGame = lazy(() => import('./MathGame'));
+const GameLoading = () => <h2 style={{ textAlign: 'center', color: '#4a4a4a' }}>⏳ 遊戲載入中...</h2>;
 // 🌟 確保所有需要的 Firebase 功能都有引入
 import { doc, getDoc, updateDoc, setDoc, onSnapshot, query, collection, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -333,7 +336,9 @@ const StudentHome = ({ user, onStartQuiz }) => {
   if (showVocabGame) {
     return (
       <div style={styles.container}>
-        <VocabGame user={user} userData={userData} onBack={() => setShowVocabGame(false)} />
+        <Suspense fallback={<GameLoading />}>
+          <VocabGame user={user} userData={userData} onBack={() => setShowVocabGame(false)} />
+        </Suspense>
       </div>
     );
   }
@@ -341,7 +346,9 @@ const StudentHome = ({ user, onStartQuiz }) => {
   if (showMathGame) {
     return (
       <div style={styles.container}>
-        <MathGame user={user} userData={userData} onBack={() => setShowMathGame(false)} />
+        <Suspense fallback={<GameLoading />}>
+          <MathGame user={user} userData={userData} onBack={() => setShowMathGame(false)} />
+        </Suspense>
       </div>
     );
   }

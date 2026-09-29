@@ -18,6 +18,9 @@ import { pinyinToZhuyin } from './pinyin-to-zhuyin.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR = resolve(__dirname, '.moedict-cache');
 const OUT_JSON = resolve(__dirname, '../src/data/dictData.json');
+// 網站實際讀取的是 public/dict/ 底下依等級切開的精簡版，開局只下載需要的部分
+const PUBLIC_DICT_DIR = resolve(__dirname, '../public/dict');
+const DICT_LEVEL_BOUNDS = [1000, 2500, Infinity];
 const MANUAL_JSON = resolve(__dirname, '../src/data/dictManual.json');
 const MISSING_CSV = resolve(__dirname, 'dict-missing.csv');
 const CONCURRENCY = 4;
@@ -289,6 +292,23 @@ chars.forEach((char, i) => {
 });
 
 writeFileSync(OUT_JSON, JSON.stringify(dict));
+
+// 精簡版：去掉畫面用不到的拼音、每個讀音只留 3 個字義、例詞只留 8 個
+const slim = (e) => ({
+  ...e,
+  readings: e.readings.map(({ pinyin, ...r }) => ({ ...r, defs: r.defs.slice(0, 3) })), // eslint-disable-line no-unused-vars
+  words: e.words.slice(0, 8),
+});
+mkdirSync(PUBLIC_DICT_DIR, { recursive: true });
+let from = 0;
+DICT_LEVEL_BOUNDS.forEach((to, i) => {
+  const part = Object.fromEntries(chars.slice(from, to).filter((c) => dict[c]).map((c) => [c, slim(dict[c])]));
+  writeFileSync(resolve(PUBLIC_DICT_DIR, `level-${i + 1}.json`), JSON.stringify(part));
+  from = to;
+});
+// 出題時用來排除「換個字也能成詞」的錯誤選項，只需要 2–4 字的詞
+const allWords = [...new Set(Object.values(dict).flatMap((e) => e.words))].filter((w) => w.length >= 2 && w.length <= 4);
+writeFileSync(resolve(PUBLIC_DICT_DIR, 'words.json'), JSON.stringify(allWords));
 
 const csv = ['字頻,字,原因,注音(請填，多音以 / 分隔),常用詞(請填，以、分隔)']
   .concat(missing.map(([rank, char, reason]) => `${rank},${char},${reason},,`))

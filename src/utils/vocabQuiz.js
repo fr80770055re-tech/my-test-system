@@ -28,11 +28,14 @@ const soundsAlike = (a, b) => a.readings.some((r) => b.readings.some((x) => fina
 const hasReading = (entry, bopomofo) => entry.readings.some((r) => r.bopomofo === bopomofo);
 
 // pool：可以拿來當錯誤選項的字（同級或更簡單的字，避免出現學生沒學過的罕用字）
-export function buildIndexes(dict, pool, components = null) {
+// allWords：全部字典的詞（排除「換個字也成詞」的錯誤選項用）；沒傳就從目前載入的字典自己彙整
+export function buildIndexes(dict, pool, components = null, allWords = null) {
   const byRadical = new Map();
   const byBody = new Map();
-  const allWords = new Set();
-  for (const entry of Object.values(dict)) entry.words.forEach((w) => allWords.add(w));
+  if (!allWords) {
+    allWords = new Set();
+    for (const entry of Object.values(dict)) entry.words.forEach((w) => allWords.add(w));
+  }
   for (const c of pool) {
     const entry = dict[c];
     if (!entry) continue;

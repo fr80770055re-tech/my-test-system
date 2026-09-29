@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import Login from './components/Login';
-import Quiz from './components/Quiz';
-import TeacherDashboard from './components/TeacherDashboard';
+import React, { Suspense, lazy, useState } from 'react';
+import Login from './components/login';
 import StudentHome from './components/StudentHome';
+
+// 🌟 正式測驗與老師後台點進去才下載，學生登入頁、主頁不用先載入這些程式
+const Quiz = lazy(() => import('./components/Quiz'));
+const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
+const PageLoading = () => <div style={{ padding: '40px', textAlign: 'center', fontSize: '1.5rem', color: '#4a4a4a' }}>⏳ 載入中...</div>;
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { isEmbeddedInAppBrowser } from './utils/browserDetect';
 
 import './index.css'; 
-import '../src/assets/tearsfont-1.2.otf'; 
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -131,17 +133,19 @@ function MainApp() {
             />
           )}
           
-          {currentView === "quiz" && (
-            <Quiz 
-              user={currentUser} 
-              config={quizConfig}
-              onBack={() => setCurrentView("studentHome")} 
-            />
-          )}
-          
-          {currentView === "teacher" && isTeacher && (
-            <TeacherDashboard user={currentUser} />
-          )}
+          <Suspense fallback={<PageLoading />}>
+            {currentView === "quiz" && (
+              <Quiz 
+                user={currentUser} 
+                config={quizConfig}
+                onBack={() => setCurrentView("studentHome")} 
+              />
+            )}
+            
+            {currentView === "teacher" && isTeacher && (
+              <TeacherDashboard user={currentUser} />
+            )}
+          </Suspense>
 
           <div style={{ position: 'fixed', bottom: '8px', right: '12px', fontSize: '0.75rem', color: '#9a9a9a', opacity: 0.8, pointerEvents: 'none', userSelect: 'none', zIndex: 1000 }}>
             © 2026 浩宇老師｜桃源國小專用
