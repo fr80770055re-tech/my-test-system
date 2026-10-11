@@ -42,10 +42,12 @@ html, body {
   font-weight: bold;
 }
 
-/* 滑鼠移上去時：微微浮起 */
-.pixel-btn:hover:not(:disabled) {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px #4a4a4a;
+/* 滑鼠移上去時：微微浮起（只給有滑鼠的裝置，避免平板點完按鈕卡在浮起狀態） */
+@media (hover: hover) {
+  .pixel-btn:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px #4a4a4a;
+  }
 }
 
 /* 點擊壓下去時：按鈕下沉，陰影消失 (超有手感！) */
@@ -70,6 +72,77 @@ html, body {
 .btn-red { background-color: #b97a7a; color: white; }
 .btn-gray { background-color: #9ea3a3; color: white; }
 
+/* 白字在低彩度底色上對比不夠，加一圈像素硬描邊（像素遊戲 UI 的經典做法） */
+.btn-blue, .btn-green, .btn-red, .btn-gray, .pixel-btn:disabled {
+  text-shadow: 2px 0 #4a4a4a, -2px 0 #4a4a4a, 0 2px #4a4a4a, 0 -2px #4a4a4a,
+               1px 1px #4a4a4a, -1px -1px #4a4a4a, 1px -1px #4a4a4a, -1px 1px #4a4a4a;
+}
+
+/* 紙卡按鈕：測驗選項用，白底深字最好讀 */
+.btn-paper { background-color: #fff; color: #4a4a4a; }
+
+/* 次要按鈕：羊皮紙底，用在「回首頁」「再想想」這類不搶戲的選擇 */
+.btn-ghost { background-color: #f2efeb; color: #4a4a4a; }
+
+/* 被選中的選項／切換塊：維持「壓下去」的樣子並換成黃色 */
+.pixel-btn.is-pressed,
+.pixel-btn.is-pressed:hover {
+  background-color: #d6b75a;
+  color: #4a4a4a;
+  text-shadow: none;
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 transparent;
+}
+
+/* 鍵盤操作時的焦點框：像素虛線 */
+.pixel-btn:focus-visible,
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px dashed #4a4a4a;
+  outline-offset: 4px;
+}
+
+/* 6. 像素徽章：長得像按鈕的色塊，但不能點（金幣顯示用） */
+.pixel-badge {
+  font-family: 'tearsfont-1.2', "Microsoft JhengHei", sans-serif;
+  font-weight: bold;
+  background-color: #d6b75a;
+  color: #4a4a4a;
+  border: 4px solid #4a4a4a;
+  box-shadow: 4px 4px 0 #4a4a4a;
+}
+
+/* 7. 像素下拉選單：方角、粗框，高度夠手指點 */
+.pixel-select {
+  font-family: inherit;
+  font-size: 1.1rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  color: #4a4a4a;
+  background-color: #fff;
+  border: 4px solid #4a4a4a;
+  border-radius: 0;
+}
+
+/* 8. 像素小標籤：取代單邊色條的區塊標題 */
+.pixel-tag {
+  display: inline-block;
+  background-color: #4a4a4a;
+  color: #f2efeb;
+  padding: 4px 12px;
+}
+
+/* 答題回饋期間鎖住選項：保留原本的紙白色，不套停用的灰色（灰色會讓孩子以為全錯） */
+.pixel-btn.is-locked { pointer-events: none; cursor: default; }
+
+/* 底部分頁列是深灰底，焦點框改用黃色才看得見 */
+.nav-btn:focus-visible { outline: 3px dashed #d6b75a; outline-offset: -8px; }
+
+::selection { background-color: #d6b75a; color: #4a4a4a; }
+* { scrollbar-color: #4a4a4a #dcdfdc; }
+
 /* 5. 角色專屬動畫：上下輕盈浮動 */
 @keyframes float {
   0% { transform: translateY(0px); }
@@ -78,4 +151,45 @@ html, body {
 }
 .floating-avatar {
   animation: float 3s ease-in-out infinite;
+}
+/* 9. 答題印章：⭕／❌ 從大蓋下來 */
+@keyframes stamp-in {
+  0% { transform: scale(2.2) rotate(-12deg); opacity: 0; }
+  60% { transform: scale(0.92) rotate(-6deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-6deg); opacity: 1; }
+}
+.answer-stamp { animation: stamp-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* 10. 金幣進帳：徽章彈一下 */
+@keyframes coin-pop {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-10px) scale(1.08); }
+  70% { transform: translateY(2px) scale(0.98); }
+  100% { transform: translateY(0) scale(1); }
+}
+.coin-pop { animation: coin-pop 0.5s steps(6) both; }
+
+/* 11. 買到新造型：角色跳一下 */
+@keyframes avatar-hop {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-18px); }
+  55% { transform: translateY(0); }
+  75% { transform: translateY(-6px); }
+}
+.avatar-hop { animation: avatar-hop 0.7s steps(8) both; }
+
+/* 12. 像素對話框與提示 */
+@keyframes dialog-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.pixel-dialog { animation: dialog-in 0.18s ease-out both; }
+
+/* 不想看到動畫的使用者（系統設定「減少動態效果」）：全部關掉 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

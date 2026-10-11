@@ -1,16 +1,17 @@
-import React, { Suspense, lazy, useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useRef } from 'react';
 
 // 🌟 遊戲點進去才下載，學生主頁先快速顯示
 const VocabGame = lazy(() => import('./VocabGame'));
 const MathGame = lazy(() => import('./MathGame'));
 const GameLoading = () => <h2 style={{ textAlign: 'center', color: '#4a4a4a' }}>⏳ 遊戲載入中...</h2>;
 // 🌟 確保所有需要的 Firebase 功能都有引入
-import { doc, getDoc, updateDoc, setDoc, onSnapshot, query, collection, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, onSnapshot, query, collection, where, getDocs, deleteDoc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
 import { SHOP_ITEMS, DEFAULT_BASE_URL, moneyIconImg } from '../data/shopItems';
 import { useIsMobile } from '../hooks/useIsMobile';
+import PixelDialog from './PixelDialog';
 
-const StudentHome = ({ user, onStartQuiz }) => {
+const StudentHome = ({ user, onStartQuiz, initialTab = 'quiz' }) => {
   const [userData, setUserData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showVocabGame, setShowVocabGame] = useState(false);
@@ -25,8 +26,31 @@ const StudentHome = ({ user, onStartQuiz }) => {
 
   // 🌟 手機版：底部分頁切換「測驗／商城」，商城內再分「人物／飾品」
   const isMobile = useIsMobile();
-  const [mobileTab, setMobileTab] = useState('quiz');
+  const [mobileTab, setMobileTab] = useState(initialTab);
   const [shopCategory, setShopCategory] = useState('base');
+
+  // 🌟 商城互動：像素購買對話框、買完的提示與角色跳一下
+  const [buyTarget, setBuyTarget] = useState(null);
+  const [isBuying, setIsBuying] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [hopKey, setHopKey] = useState(0);
+  const [hopping, setHopping] = useState(false);
+  const [buyError, setBuyError] = useState(null);
+  const triggerHop = () => { setHopKey(k => k + 1); setHopping(true); };
+  const onHopEnd = (e) => { if (e.animationName === 'avatar-hop') setHopping(false); };
+  const toastTimer = useRef(null);
+  const shopCardRef = useRef(null);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  // 🌟 桌機版從結算頁按「去商城」回來時，等資料載入後直接捲到商城區
+  useEffect(() => {
+    if (!isLoading && initialTab === 'shop' && !isMobile) {
+      shopCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [isLoading, initialTab, isMobile]);
+
+  // 🌟 登入檢核的訊息改成畫面上的像素提示卡，不再跳出技術性的 alert
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     let unsubUser = () => {};
@@ -34,10 +58,15 @@ const StudentHome = ({ user, onStartQuiz }) => {
     const initializeAndListen = async () => {
       // 1. 抓取系統設定
       let currentSettings = { cooldownMinutes: 60, coinMultiplier: 1, practiceReward: 0 };
-      const settingsSnap = await getDoc(doc(db, "settings", "system"));
-      if (settingsSnap.exists()) {
-        currentSettings = { ...currentSettings, ...settingsSnap.data() };
-        setSysSettings(currentSettings);
+      // 讀不到系統設定就用預設值繼續，不要讓畫面卡在「載入中」
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "system"));
+        if (settingsSnap.exists()) {
+          currentSettings = { ...currentSettings, ...settingsSnap.data() };
+          setSysSettings(currentSettings);
+        }
+      } catch (error) {
+        console.error("讀取系統設定失敗，改用預設值", error);
       }
 
       // 🌟 2. 靈魂融合與前台檢核機制
@@ -61,7 +90,7 @@ const StudentHome = ({ user, onStartQuiz }) => {
               
               await deleteDoc(doc(db, "users", existingDoc.id));
               
-              alert(`🎉 資料銜接成功！\n已將您設定的金幣成功移轉給「${user.email}」！`);
+              setNotice({ tone: 'good', text: '🎉 你的金幣和造型都已經接上這個帳號囉！' });
             }
           }
           
@@ -70,11 +99,14 @@ const StudentHome = ({ user, onStartQuiz }) => {
           }
           
         } else {
-          alert(`【系統檢核報告 🚨】\n資料銜接失敗！\n\n這名學生目前是用這個 Email 登入的：\n👉 ${user.email}\n\n但在老師的後台名單中，找不到一模一樣的信箱。\n請回教師控制台核對，是否有拼錯字或打錯網域喔！`);
+          // 給老師的技術細節留在 console，學生只看到該怎麼做
+          console.warn(`資料銜接失敗：後台名單找不到 ${user.email}，請回教師控制台核對信箱是否拼錯。`);
+          setNotice({ tone: 'warn', text: `請告訴老師：你的帳號（${user.email}）還沒加入班級名單，金幣可能不會被記錄。` });
         }
       } catch (error) {
-        alert(`【系統檢核報告 🚨】\n系統嘗試讀取舊資料時被阻擋了！\n\n錯誤原因：${error.message}\n\n💡 這通常是因為 Firebase 的「Firestore 安全規則」限制了學生的搜尋權限。請確認資料庫規則是否開放讀取。`);
-        console.error("融合資料失敗：", error);
+        // 通常是 Firestore 安全規則限制了學生的搜尋權限，細節留在 console 給老師查
+        console.error("融合資料失敗（請確認 Firestore 安全規則是否開放讀取）：", error);
+        setNotice({ tone: 'warn', text: '😅 讀取資料時卡住了，請重新整理一次；如果還是不行，請告訴老師。' });
       }
 
       // 🌟 3. 啟動即時監聽 (onSnapshot)！
@@ -144,7 +176,8 @@ const StudentHome = ({ user, onStartQuiz }) => {
         const snap = await getDocs(q);
         const units = new Set();
         snap.forEach(docSnap => units.add(docSnap.data().unit || '未分類'));
-        setAvailableUnits([...units].sort());
+        // 依數字大小排序，「第2課」才會排在「第10課」前面
+        setAvailableUnits([...units].sort((a, b) => a.localeCompare(b, 'zh-Hant', { numeric: true })));
       } catch (error) {
         console.error("讀取單元清單失敗", error);
         setAvailableUnits([]);
@@ -154,13 +187,58 @@ const StudentHome = ({ user, onStartQuiz }) => {
     loadUnits();
   }, [selectedSubject]);
 
-  const handleBuy = async (item) => {
-    if (userData.coins < item.price) return alert("⚠️ 金幣不足！");
-    if (window.confirm(`確定花費 ${item.price} 購買「${item.name}」？`)) {
-      const newCoins = userData.coins - item.price;
-      const newOwnedItems = [...userData.owned_items, item.id];
-      await setDoc(doc(db, "users", user.uid), { coins: newCoins, owned_items: newOwnedItems }, { merge: true });
+  const showToast = (text) => {
+    clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  };
+
+  const closeBuyDialog = () => {
+    if (isBuying) return;
+    setBuyTarget(null);
+    setBuyError(null);
+  };
+
+  // 🌟 買下後直接幫學生穿上，並讓角色跳一下
+  // 用 transaction 以資料庫裡「當下」的餘額計算，不會用畫面上的舊數字覆蓋掉別台裝置的變動
+  const confirmBuy = async () => {
+    const item = buyTarget;
+    if (!item || isBuying) return;
+    setIsBuying(true);
+    setBuyError(null);
+    const userRef = doc(db, "users", user.uid);
+    const purchase = runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef);
+      const data = snap.data() || {};
+      const coins = data.coins || 0;
+      if ((data.owned_items || []).includes(item.id)) throw new Error('owned');
+      if (coins < item.price) throw new Error('not-enough');
+      const currentEquipped = (typeof data.equipped === 'object' && data.equipped !== null)
+        ? data.equipped
+        : { base: data.equippedBase || 'base_bear', head: null, face: null, accessory: data.equippedAccessory || null };
+      tx.update(userRef, {
+        coins: coins - item.price,
+        owned_items: arrayUnion(item.id),
+        equipped: { ...currentEquipped, [item.type]: item.id },
+      });
+    });
+    // 網路斷掉時 Firestore 可能一直等不到回應，8 秒後先放開按鈕，讓孩子可以關掉對話框
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
+    try {
+      await Promise.race([purchase, timeout]);
+      setBuyTarget(null);
+      triggerHop();
+      showToast(`🎉 買到「${item.name}」，已經幫你穿上囉！`);
+    } catch (error) {
+      console.error("購買失敗", error);
+      setBuyError(
+        error.message === 'not-enough' ? '😅 金幣不夠喔，可能剛剛在別的地方花掉了。'
+        : error.message === 'owned' ? '你已經有這個囉！可以直接穿上。'
+        : error.message === 'timeout' ? '📶 網路好像不太穩，請等一下再試。如果金幣已經扣掉，東西也會出現在你的商城裡。'
+        : '😅 購買沒有成功，金幣沒有被扣，請再試一次。'
+      );
     }
+    setIsBuying(false);
   };
 
   const handleEquip = async (item) => {
@@ -171,6 +249,7 @@ const StudentHome = ({ user, onStartQuiz }) => {
       newEquipped[item.type] = item.id;
     }
     await setDoc(doc(db, "users", user.uid), { equipped: newEquipped }, { merge: true });
+    triggerHop();
   };
 
   const handleStartClick = () => {
@@ -205,24 +284,60 @@ const StudentHome = ({ user, onStartQuiz }) => {
   const equippedAccessory = SHOP_ITEMS.find(i => i.id === userData.equipped.accessory);
   const currentBaseImageUrl = equippedBase ? equippedBase.imageUrl : DEFAULT_BASE_URL;
 
+  const isCoolingDown = quizMode === 'formal' && timeRemaining > 0;
+  const formalReward = Math.max(1, Math.round(10 * (sysSettings.coinMultiplier || 1)));
+
+  // 商品排序：買得起的放最前面，再來是已經有的，最後是還差一點的（各自依價格由低到高）
+  const shopRank = (item) => {
+    const owned = userData.owned_items.includes(item.id) || (item.type === 'base' && item.price === 0);
+    if (owned) return 1;
+    return item.price <= userData.coins ? 0 : 2;
+  };
+  const cooldownMinutes = Math.ceil(timeRemaining / 60000);
+
   // 角色與飾品的商品格子，電腦版兩區都顯示，手機版依小分頁只顯示一區
   const renderShopGrid = (category) => (
     <div style={isMobile ? styles.shopGridMobile : styles.shopGrid}>
-      {SHOP_ITEMS.filter(item => (category === 'base' ? item.type === 'base' : item.type !== 'base')).map(item => {
+      {SHOP_ITEMS
+        .filter(item => (category === 'base' ? item.type === 'base' : item.type !== 'base'))
+        .sort((a, b) => shopRank(a) - shopRank(b) || a.price - b.price)
+        .map(item => {
         const isOwned = userData.owned_items.includes(item.id) || (item.type === 'base' && item.price === 0);
         const isEquipped = userData.equipped[item.type] === item.id;
+        const shortfall = item.price - userData.coins;
         return (
-          <div key={item.id} className="pixel-box" style={isMobile ? styles.itemCardMobile : styles.itemCard}>
+          <div
+            key={item.id}
+            className="pixel-box"
+            style={{
+              ...(isMobile ? styles.itemCardMobile : styles.itemCard),
+              ...(isEquipped ? styles.itemCardEquipped : null),
+              ...(!isOwned && shortfall > 0 ? styles.itemCardLocked : null),
+            }}
+          >
+            {isEquipped && <span style={styles.wearingTag}>✔ 穿著</span>}
             <img src={item.imageUrl} alt={item.name} style={isMobile ? styles.shopItemImageMobile : styles.shopItemImage} />
             <div style={isMobile ? styles.itemNameMobile : styles.itemName}>{item.name}</div>
             {!isOwned ? (
-              <button className="pixel-btn btn-yellow" style={styles.buyBtn} onClick={() => handleBuy(item)}>
-                <img src={moneyIconImg} alt="money" style={styles.moneyIconSmall} /> {item.price}
-              </button>
+              shortfall > 0 ? (
+                // 買不起也能點開試穿，看看穿上的樣子、還要考幾次
+                <button className="pixel-btn btn-ghost" style={styles.shortfall} onClick={() => setBuyTarget(item)}>
+                  <span><img src={moneyIconImg} alt="金幣" style={styles.moneyIconSmall} /> {item.price}</span>
+                  <span style={styles.shortfallNote}>還差 {shortfall}・試穿</span>
+                </button>
+              ) : (
+                <button className="pixel-btn btn-yellow" style={styles.buyBtn} onClick={() => setBuyTarget(item)}>
+                  <img src={moneyIconImg} alt="金幣" style={styles.moneyIconSmall} /> {item.price}
+                </button>
+              )
+            ) : isEquipped ? (
+              item.type === 'base' ? (
+                <div style={styles.equippedTag}>正在使用</div>
+              ) : (
+                <button className="pixel-btn btn-ghost" style={styles.equipBtn} onClick={() => handleEquip(item)}>脫下</button>
+              )
             ) : (
-              <button className={`pixel-btn ${isEquipped ? 'btn-red' : 'btn-green'}`} style={styles.equipBtn} onClick={() => handleEquip(item)}>
-                {isEquipped ? (category === 'base' ? "使用中" : "脫下") : "裝備"}
-              </button>
+              <button className="pixel-btn btn-green" style={styles.equipBtn} onClick={() => handleEquip(item)}>穿上</button>
             )}
           </div>
         );
@@ -230,100 +345,165 @@ const StudentHome = ({ user, onStartQuiz }) => {
     </div>
   );
 
-  const avatarLayers = (
-    <>
-      <img src={currentBaseImageUrl} alt="base" style={styles.layerImage} />
-      {equippedAccessory && <img src={equippedAccessory.imageUrl} alt="accessory" style={styles.layerImage} />}
-      {equippedFace && <img src={equippedFace.imageUrl} alt="face" style={styles.layerImage} />}
-      {equippedHead && <img src={equippedHead.imageUrl} alt="head" style={styles.layerImage} />}
-    </>
+  // 疊圖：可以傳入「試穿」的商品，購買對話框用來預覽穿上的樣子
+  const renderAvatarLayers = (tryOn) => {
+    const base = tryOn?.type === 'base' ? tryOn : equippedBase;
+    const accessory = tryOn && tryOn.type === 'accessory' ? tryOn : equippedAccessory;
+    return (
+      <>
+        <img src={base ? base.imageUrl : DEFAULT_BASE_URL} alt="" style={styles.layerImage} />
+        {accessory && <img src={accessory.imageUrl} alt="" style={styles.layerImage} />}
+        {equippedFace && <img src={equippedFace.imageUrl} alt="" style={styles.layerImage} />}
+        {equippedHead && <img src={equippedHead.imageUrl} alt="" style={styles.layerImage} />}
+      </>
+    );
+  };
+
+  // 像素切換塊：取代原生的小圓點選項，手指好點
+  const renderToggle = (label, options, value, onChange) => (
+    <fieldset style={styles.fieldset}>
+      <legend style={styles.legend}>{label}</legend>
+      <div style={styles.toggleRow}>
+        {options.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`pixel-btn btn-paper ${value === opt.value ? 'is-pressed' : ''}`}
+            style={styles.toggleBtn}
+            aria-pressed={value === opt.value}
+            onClick={() => onChange(opt.value)}
+          >
+            <span>{opt.label}</span>
+            {opt.note && <small style={styles.toggleNote}>{opt.note}</small>}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 
   const quizCard = (
     <div className="pixel-card" style={isMobile ? styles.avatarCardMobile : styles.avatarCard}>
-      <h3 style={styles.cardTitle}>我的造型</h3>
-
-      <div className="pixel-box floating-base" style={isMobile ? styles.avatarDisplayMobile : styles.avatarDisplay}>
-        {avatarLayers}
-      </div>
+      {!isMobile && (
+        <>
+          <h3 style={styles.cardTitle}>我的造型</h3>
+          <div key={hopKey} className={`pixel-box ${hopping ? 'avatar-hop' : 'floating-avatar'}`} style={styles.avatarDisplay} onAnimationEnd={onHopEnd}>
+            {renderAvatarLayers()}
+          </div>
+        </>
+      )}
 
       <div style={styles.quizPanel}>
-        <h4>✏️ 選擇測驗科目</h4>
-        <div style={styles.radioGroup}>
-          <label style={styles.radioLabel}>
-            <input type="radio" checked={selectedSubject === '國語'} onChange={() => setSelectedSubject('國語')} /> 國語
-          </label>
-          <label style={styles.radioLabel}>
-            <input type="radio" checked={selectedSubject === '數學'} onChange={() => setSelectedSubject('數學')} /> 數學
-          </label>
-        </div>
+        {renderToggle('✏️ 科目', [{ value: '國語', label: '國語' }, { value: '數學', label: '數學' }], selectedSubject, setSelectedSubject)}
 
-        <h4>📖 選擇單元／課別</h4>
-        <div style={{...styles.radioGroup, padding: '10px'}}>
-          <select
-            style={{padding: '8px', border: '3px solid #4a4a4a', borderRadius: '5px', fontSize: '1.1rem', width: '100%'}}
-            value={selectedUnit}
-            onChange={(e) => setSelectedUnit(e.target.value)}
-          >
-            <option value="ALL">🔀 綜合測驗（全部單元混合出題）</option>
+        <label style={styles.fieldset}>
+          <span style={styles.legend}>📖 單元</span>
+          <select className="pixel-select" value={selectedUnit} onChange={(e) => setSelectedUnit(e.target.value)}>
+            <option value="ALL">🔀 全部單元混合</option>
             {availableUnits.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
-        </div>
+        </label>
 
-        <h4>🎮 選擇模式</h4>
-        <div style={styles.radioGroup}>
-          <label style={styles.radioLabel}>
-            <input type="radio" checked={quizMode === 'formal'} onChange={() => setQuizMode('formal')} />
-            正式測驗 (賺獎勵)
-          </label>
-          <label style={styles.radioLabel}>
-            <input type="radio" checked={quizMode === 'practice'} onChange={() => setQuizMode('practice')} />
-            練習模式
-            {sysSettings.practiceReward > 0 && <span style={{color: '#8ca279', marginLeft: '5px'}}>(獎勵 {sysSettings.practiceReward} 金幣)</span>}
-          </label>
-        </div>
+        {renderToggle('🎮 模式', [
+          { value: 'formal', label: '正式測驗', note: '賺金幣' },
+          { value: 'practice', label: '練習', note: sysSettings.practiceReward > 0 ? `+${sysSettings.practiceReward} 金幣` : '隨時可玩' },
+        ], quizMode, setQuizMode)}
       </div>
 
       <button
-        className={`pixel-btn ${quizMode === 'formal' && timeRemaining > 0 ? 'btn-gray' : 'btn-blue'}`}
+        className="pixel-btn btn-blue"
         style={styles.startBtn}
-        disabled={quizMode === 'formal' && timeRemaining > 0}
+        disabled={isCoolingDown}
         onClick={handleStartClick}
       >
-        {quizMode === 'formal' && timeRemaining > 0
-          ? `⏳ 冷卻中 (${Math.ceil(timeRemaining / 60000)} 分)`
-          : '🚀 開始測驗 ➔'}
+        {isCoolingDown ? `⏳ 正式測驗休息中（${cooldownMinutes} 分）` : '🚀 開始測驗'}
       </button>
+      {isCoolingDown && (
+        <div style={styles.cooldownHint}>
+          <p style={{ margin: '0 0 10px' }}>正式測驗每 {sysSettings.cooldownMinutes} 分鐘可以考一次。休息的時候，可以先玩練習或修練場！</p>
+          <button type="button" className="pixel-btn btn-paper" style={styles.practiceBtn} onClick={() => setQuizMode('practice')}>🎮 改玩練習模式</button>
+        </div>
+      )}
 
-      <button
-        className="pixel-btn btn-green"
-        style={{...styles.startBtn, marginTop: '15px'}}
-        onClick={() => setShowVocabGame(true)}
-      >
-        📖 進入識字修練場
-      </button>
-
-      <button
-        className="pixel-btn btn-yellow"
-        style={{...styles.startBtn, marginTop: '15px', color: '#4a4a4a'}}
-        onClick={() => setShowMathGame(true)}
-      >
-        ✖️ 九九乘法道場
-      </button>
+      {/* 兩個小遊戲是次要入口：並排的小卡，不跟「開始測驗」搶 */}
+      <div style={styles.gameRow}>
+        <button className="pixel-btn btn-green" style={styles.gameBtn} onClick={() => setShowVocabGame(true)}>
+          <span style={styles.gameIcon}>📖</span>識字修練場
+        </button>
+        <button className="pixel-btn btn-yellow" style={styles.gameBtn} onClick={() => setShowMathGame(true)}>
+          <span style={styles.gameIcon}>✖️</span>九九乘法道場
+        </button>
+      </div>
     </div>
   );
 
   const header = (
     <div style={isMobile ? styles.headerMobile : styles.header}>
-      <h2 style={{ color: '#4a4a4a', margin: 0, fontSize: isMobile ? '1.3rem' : undefined, minWidth: 0 }}>
+      {isMobile && (
+        <div key={hopKey} className={`pixel-box ${hopping ? 'avatar-hop' : ''}`} style={styles.avatarMini} onAnimationEnd={onHopEnd}>
+          {renderAvatarLayers()}
+        </div>
+      )}
+      <h2 style={{ color: '#4a4a4a', margin: 0, fontSize: isMobile ? '1.3rem' : undefined, minWidth: 0, flex: isMobile ? 1 : undefined }}>
         你好，
         {!isMobile && <br />}
-        <span style={{ whiteSpace: 'nowrap' }}>{userData.name}！</span>
+        <span style={isMobile ? styles.nameMobile : { whiteSpace: 'nowrap' }}>{userData.name}！</span>
       </h2>
-      <div className="pixel-btn btn-yellow" style={isMobile ? styles.coinBadgeMobile : styles.coinBadge}>
-        <img src={moneyIconImg} alt="money" style={isMobile ? styles.moneyIconSmall : styles.moneyIconLarge} />
+      <div className="pixel-badge" style={isMobile ? styles.coinBadgeMobile : styles.coinBadge} aria-label={`目前有 ${userData.coins} 金幣`}>
+        <img src={moneyIconImg} alt="" style={isMobile ? styles.moneyIconSmall : styles.moneyIconLarge} />
         <span>{isMobile ? userData.coins : `目前擁有：${userData.coins}`}</span>
       </div>
+    </div>
+  );
+
+  const noticeCard = notice && (
+    <div className="pixel-box" role="status" style={{ ...styles.notice, backgroundColor: notice.tone === 'good' ? '#e6ecdf' : '#fdf6e3' }}>
+      <span style={{ flex: 1 }}>{notice.text}</span>
+      <button className="pixel-btn btn-ghost" style={styles.noticeClose} onClick={() => setNotice(null)} aria-label="關閉提示">✕</button>
+    </div>
+  );
+
+  const accessoryHint = (
+    <p style={styles.shopHint}>🎀 一次只能戴一個飾品，穿上新的會自動換掉舊的。</p>
+  );
+
+  const buyShortfall = buyTarget ? buyTarget.price - userData.coins : 0;
+  const buyDialog = buyTarget && (
+    <PixelDialog
+      title={buyShortfall > 0 ? `試穿「${buyTarget.name}」` : `要買「${buyTarget.name}」嗎？`}
+      onClose={closeBuyDialog}
+      actions={buyShortfall > 0 ? (
+        <button className="pixel-btn btn-blue" style={styles.dialogBtn} onClick={closeBuyDialog}>知道了，去賺金幣！</button>
+      ) : (<>
+        <button className="pixel-btn btn-yellow" style={styles.dialogBtn} onClick={confirmBuy} disabled={isBuying}>
+          {isBuying ? '⏳ 購買中…' : '買下並穿上'}
+        </button>
+        <button className="pixel-btn btn-ghost" style={styles.dialogBtn} onClick={closeBuyDialog} disabled={isBuying} data-autofocus>再想想</button>
+      </>)}
+    >
+      <div className="pixel-box" style={styles.tryOnBox}>{renderAvatarLayers(buyTarget)}</div>
+      {buyTarget.desc && <p style={{ margin: '0 0 10px' }}>{buyTarget.desc}</p>}
+      {buyShortfall > 0 ? (
+        <div style={styles.priceMath}>
+          還差 <img src={moneyIconImg} alt="金幣" style={styles.moneyIconSmall} /> <strong>{buyShortfall}</strong>
+          <div style={{ fontSize: '1.05rem', marginTop: '6px' }}>大約再考 {Math.ceil(buyShortfall / formalReward)} 次正式測驗就買得到！</div>
+        </div>
+      ) : (
+        <div style={styles.priceMath}>
+          <img src={moneyIconImg} alt="金幣" style={styles.moneyIconSmall} /> {userData.coins}
+          <span> − {buyTarget.price} → </span>
+          <strong>剩 {userData.coins - buyTarget.price}</strong>
+        </div>
+      )}
+      {buyShortfall <= 0 && buyTarget.type === 'accessory' && equippedAccessory && (
+        <p style={{ margin: '10px 0 0', fontSize: '1rem' }}>會換掉你現在戴的「{equippedAccessory.name}」</p>
+      )}
+      {buyError && <div className="pixel-box" role="alert" style={styles.dialogError}>{buyError}</div>}
+    </PixelDialog>
+  );
+
+  const toastEl = toast && (
+    <div className="pixel-badge pixel-dialog" role="status" style={{ ...styles.toast, bottom: isMobile ? 'calc(84px + env(safe-area-inset-bottom))' : '40px' }}>
+      {toast}
     </div>
   );
 
@@ -331,51 +511,68 @@ const StudentHome = ({ user, onStartQuiz }) => {
   if (isMobile) {
     return (
       <div style={styles.containerMobile}>
-        {header}
+        {mobileTab === 'quiz' && header}
+        {noticeCard}
 
         {mobileTab === 'quiz' && quizCard}
 
         {mobileTab === 'shop' && (
           <div className="pixel-card" style={styles.shopCardMobile}>
-            {/* 商城頂端放小預覽，換裝時不用切回測驗分頁就看得到效果 */}
-            <div style={styles.shopPreviewRow}>
-              <div className="pixel-box" style={styles.avatarPreviewMini}>{avatarLayers}</div>
-              <h3 style={{ ...styles.cardTitle, margin: 0, border: 'none', padding: 0, fontSize: '1.5rem' }}>🛍️ 造型商城</h3>
+            {/* 角色和金幣黏在商城頂端：捲到哪裡都看得到換裝結果 */}
+            <div style={styles.shopStrip}>
+              <div key={hopKey} className={`pixel-box ${hopping ? 'avatar-hop' : ''}`} style={styles.avatarStrip} onAnimationEnd={onHopEnd}>
+                {renderAvatarLayers()}
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.4rem', flex: 1 }}>🛍️ 造型商城</h3>
+              <div className="pixel-badge" style={styles.coinBadgeMobile} aria-label={`目前有 ${userData.coins} 金幣`}>
+                <img src={moneyIconImg} alt="" style={styles.moneyIconSmall} />
+                <span>{userData.coins}</span>
+              </div>
             </div>
             <div style={styles.segmented}>
               <button
-                className={`pixel-btn ${shopCategory === 'base' ? 'btn-blue' : 'btn-gray'}`}
+                className={`pixel-btn btn-paper ${shopCategory === 'base' ? 'is-pressed' : ''}`}
                 style={styles.segmentBtn}
+                aria-pressed={shopCategory === 'base'}
                 onClick={() => setShopCategory('base')}
               >
                 🧑‍🤝‍🧑 人物角色
               </button>
               <button
-                className={`pixel-btn ${shopCategory === 'accessory' ? 'btn-blue' : 'btn-gray'}`}
+                className={`pixel-btn btn-paper ${shopCategory === 'accessory' ? 'is-pressed' : ''}`}
                 style={styles.segmentBtn}
+                aria-pressed={shopCategory === 'accessory'}
                 onClick={() => setShopCategory('accessory')}
               >
                 🎀 飾品配件
               </button>
             </div>
+            {shopCategory === 'accessory' && accessoryHint}
             {renderShopGrid(shopCategory)}
           </div>
         )}
 
-        <nav style={styles.bottomNav}>
+        <nav style={styles.bottomNav} aria-label="主選單">
           <button
+            className="nav-btn"
             style={{ ...styles.navBtn, ...(mobileTab === 'quiz' ? styles.navBtnActive : null) }}
+            aria-current={mobileTab === 'quiz' ? 'page' : undefined}
             onClick={() => { setMobileTab('quiz'); window.scrollTo(0, 0); }}
           >
             <span style={styles.navIcon}>✏️</span>測驗
           </button>
           <button
+            className="nav-btn"
             style={{ ...styles.navBtn, ...(mobileTab === 'shop' ? styles.navBtnActive : null) }}
+            aria-current={mobileTab === 'shop' ? 'page' : undefined}
             onClick={() => { setMobileTab('shop'); window.scrollTo(0, 0); }}
           >
             <span style={styles.navIcon}>🛍️</span>商城
           </button>
         </nav>
+
+        {buyDialog}
+        {toastEl}
       </div>
     );
   }
@@ -384,68 +581,97 @@ const StudentHome = ({ user, onStartQuiz }) => {
   return (
     <div style={styles.container}>
       {header}
+      {noticeCard}
 
       <div style={styles.mainLayout}>
         {quizCard}
 
-        <div className="pixel-card" style={styles.shopCard}>
+        <div ref={shopCardRef} className="pixel-card" style={{ ...styles.shopCard, scrollMarginTop: '72px' }}>
           <h3 style={styles.cardTitle}>🛍️ 造型商城</h3>
 
-          <h4 style={styles.sectionTitle}>🧑‍🤝‍🧑 人物角色</h4>
+          <h4 style={styles.sectionTitle}><span className="pixel-tag">🧑‍🤝‍🧑 人物角色</span></h4>
           {renderShopGrid('base')}
 
           <hr style={styles.divider} />
 
-          <h4 style={styles.sectionTitle}>🎀 飾品配件</h4>
+          <h4 style={styles.sectionTitle}><span className="pixel-tag">🎀 飾品配件</span></h4>
+          {accessoryHint}
           {renderShopGrid('accessory')}
         </div>
       </div>
+
+      {buyDialog}
+      {toastEl}
     </div>
   );
 };
 
 const styles = {
-  container: { maxWidth: '900px', margin: '0 auto', padding: '20px', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif' },
+  container: { maxWidth: '980px', margin: '0 auto', padding: '20px', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif', color: '#4a4a4a' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '4px solid #4a4a4a', paddingBottom: '10px' },
-  mainLayout: { display: 'flex', gap: '25px', flexWrap: 'wrap', alignItems: 'flex-start' }, 
-  avatarCard: { flex: '1', minWidth: '280px', padding: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'sticky', top: '20px', height: 'fit-content' },
-  shopCard: { flex: '2', minWidth: '320px', padding: '20px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' },
+  mainLayout: { display: 'flex', gap: '25px', flexWrap: 'wrap', alignItems: 'flex-start' },
+  // 左欄跟著頁面捲動停在頂列下方；商城不再做內部捲動，平板上才不會捲動區套捲動區
+  avatarCard: { flex: '1', minWidth: '280px', padding: '20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'sticky', top: '72px', height: 'fit-content' },
+  shopCard: { flex: '2', minWidth: '320px', padding: '20px' },
   cardTitle: { color: '#4a4a4a', margin: '0 0 10px 0', fontSize: '1.8rem', borderBottom: '4px dashed #4a4a4a', paddingBottom: '10px' },
-  avatarDisplay: { position: 'relative', width: '180px', height: '180px', margin: '15px 0', overflow: 'hidden' },
+  avatarDisplay: { position: 'relative', width: '160px', height: '160px', margin: '12px 0', overflow: 'hidden' },
   layerImage: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'contain' },
-  quizPanel: { width: '100%', textAlign: 'left', marginTop: '15px' },
-  radioGroup: { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '15px', padding: '10px', border: '4px solid #4a4a4a', backgroundColor: '#e8e8e8' },
-  radioLabel: { fontSize: '1.1rem', color: '#4a4a4a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' },
+  quizPanel: { width: '100%', textAlign: 'left', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '14px' },
+  fieldset: { display: 'flex', flexDirection: 'column', gap: '8px', border: 'none', margin: 0, padding: 0, minWidth: 0 },
+  legend: { fontSize: '1.15rem', fontWeight: 'bold', padding: 0, marginBottom: '8px' },
+  toggleRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', paddingRight: '4px' },
+  toggleBtn: { minHeight: '56px', padding: '8px', fontSize: '1.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px' },
+  toggleNote: { fontSize: '0.85rem', fontWeight: 'bold' },
+  startBtn: { marginTop: '18px', width: '100%', minHeight: '60px', padding: '14px', fontSize: '1.45rem' },
+  cooldownHint: { marginTop: '12px', fontSize: '1.05rem', lineHeight: 1.5, textAlign: 'left', width: '100%', paddingRight: '4px' },
+  practiceBtn: { width: '100%', minHeight: '48px', fontSize: '1.1rem' },
+  nameMobile: { display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  dialogError: { marginTop: '14px', padding: '10px 12px', backgroundColor: '#fdf6e3', fontSize: '1.05rem', textAlign: 'left' },
+  shopStrip: { position: 'sticky', top: '64px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '12px', margin: '-16px -16px 14px', padding: '10px 16px', backgroundColor: '#f2efeb', borderBottom: '4px dashed #4a4a4a' },
+  avatarStrip: { position: 'relative', width: '80px', height: '80px', flexShrink: 0, overflow: 'hidden', backgroundColor: '#dcdfdc' },
+  gameRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', width: '100%', marginTop: '18px', paddingRight: '4px' },
+  gameBtn: { minHeight: '64px', padding: '8px', fontSize: '1.05rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px', lineHeight: 1.2 },
+  gameIcon: { fontSize: '1.4rem' },
   shopGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '15px' },
-  itemCard: { padding: '15px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  itemCard: { position: 'relative', padding: '15px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  itemCardEquipped: { backgroundColor: '#fdf6e3' },
+  itemCardLocked: { borderStyle: 'dashed', backgroundColor: '#ecebe7' },
   shopItemImage: { width: '70px', height: '70px', objectFit: 'contain', marginBottom: '10px' },
   itemName: { fontSize: '1.2rem', fontWeight: 'bold', color: '#4a4a4a', marginBottom: '10px' },
-  sectionTitle: { color: '#4a4a4a', borderLeft: '8px solid #6e85b7', paddingLeft: '10px', marginTop: '20px', marginBottom: '15px', fontSize: '1.4rem' },
+  sectionTitle: { margin: '20px 0 15px', fontSize: '1.3rem' },
   divider: { border: '0', borderTop: '4px dashed #4a4a4a', margin: '25px 0' },
-  buyBtn: { width: '100%', padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', fontSize: '1.1rem' },
-  equipBtn: { width: '100%', padding: '8px', fontSize: '1.1rem' },
-  startBtn: { marginTop: '15px', width: '100%', padding: '15px', fontSize: '1.3rem' },
-  coinBadge: { padding: '8px 15px', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'default' },
+  buyBtn: { width: '100%', minHeight: '44px', padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', fontSize: '1.1rem' },
+  equipBtn: { width: '100%', minHeight: '44px', padding: '8px', fontSize: '1.05rem' },
+  equippedTag: { width: '100%', minHeight: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.05rem', border: '4px dashed #4a4a4a' },
+  wearingTag: { position: 'absolute', top: 0, left: 0, padding: '2px 8px', backgroundColor: '#4a4a4a', color: '#f2efeb', fontSize: '0.9rem', fontWeight: 'bold' },
+  shortfall: { width: '100%', minHeight: '48px', padding: '4px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', fontSize: '1rem', lineHeight: 1.2 },
+  shortfallNote: { fontSize: '0.9rem' },
+  shopHint: { margin: '0 0 14px', fontSize: '1.05rem', lineHeight: 1.5 },
+  coinBadge: { padding: '8px 15px', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' },
   moneyIconLarge: { height: '28px', objectFit: 'contain' },
   moneyIconSmall: { height: '18px', objectFit: 'contain', verticalAlign: 'middle' },
+  notice: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', marginBottom: '16px', fontSize: '1.1rem', lineHeight: 1.5 },
+  noticeClose: { minWidth: '44px', minHeight: '44px', padding: 0, fontSize: '1rem', flexShrink: 0 },
+  dialogBtn: { width: '100%', minHeight: '52px', fontSize: '1.2rem' },
+  tryOnBox: { position: 'relative', width: '140px', height: '140px', margin: '0 auto 12px', overflow: 'hidden' },
+  priceMath: { fontSize: '1.25rem', fontVariantNumeric: 'tabular-nums' },
+  toast: { position: 'fixed', left: '50%', transform: 'translateX(-50%)', zIndex: 3100, padding: '10px 18px', fontSize: '1.1rem', width: 'max-content', maxWidth: 'calc(100vw - 32px)', textAlign: 'center' },
 
   // 📱 手機版專用
-  containerMobile: { padding: '12px 16px calc(84px + env(safe-area-inset-bottom))', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif' },
-  headerMobile: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '14px', borderBottom: '4px solid #4a4a4a', paddingBottom: '8px' },
-  coinBadgeMobile: { padding: '6px 12px', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'default', flexShrink: 0 },
+  containerMobile: { padding: '12px 16px calc(84px + env(safe-area-inset-bottom))', fontFamily: '"tearsfont-1.2", "Microsoft JhengHei", sans-serif', color: '#4a4a4a' },
+  headerMobile: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', borderBottom: '4px solid #4a4a4a', paddingBottom: '8px' },
+  avatarMini: { position: 'relative', width: '56px', height: '56px', flexShrink: 0, overflow: 'hidden' },
+  coinBadgeMobile: { padding: '6px 12px', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 },
   avatarCardMobile: { width: '100%', padding: '16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' },
-  avatarDisplayMobile: { position: 'relative', width: '130px', height: '130px', margin: '10px 0', overflow: 'hidden' },
   shopCardMobile: { width: '100%', padding: '16px' },
-  shopPreviewRow: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' },
-  avatarPreviewMini: { position: 'relative', width: '64px', height: '64px', flexShrink: 0, overflow: 'hidden' },
-  segmented: { display: 'flex', gap: '10px', marginBottom: '16px' },
-  segmentBtn: { flex: 1, minHeight: '44px', padding: '8px', fontSize: '1.05rem' },
+  segmented: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px', paddingRight: '4px' },
+  segmentBtn: { minHeight: '48px', padding: '8px', fontSize: '1.05rem' },
   shopGridMobile: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' },
-  itemCardMobile: { padding: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  itemCardMobile: { position: 'relative', padding: '10px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' },
   shopItemImageMobile: { width: '64px', height: '64px', objectFit: 'contain', marginBottom: '6px' },
   itemNameMobile: { fontSize: '1.05rem', fontWeight: 'bold', color: '#4a4a4a', marginBottom: '8px' },
   bottomNav: { position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 900, display: 'flex', backgroundColor: '#4a4a4a', borderTop: '4px solid #2c2c2c', paddingBottom: 'env(safe-area-inset-bottom)' },
-  navBtn: { flex: 1, minHeight: '64px', border: 'none', background: 'transparent', color: '#dcdfdc', fontFamily: 'inherit', fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', cursor: 'pointer' },
+  navBtn: { flex: 1, minHeight: '64px', border: 'none', background: 'transparent', color: '#f2efeb', fontFamily: 'inherit', fontSize: '1.1rem', fontWeight: 'bold', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', cursor: 'pointer' },
   navBtnActive: { backgroundColor: '#d6b75a', color: '#4a4a4a' },
   navIcon: { fontSize: '1.4rem', lineHeight: 1 },
 };
