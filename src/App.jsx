@@ -8,6 +8,7 @@ const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 const PageLoading = () => <div style={{ padding: '40px', textAlign: 'center', fontSize: '1.5rem', color: '#4a4a4a' }}>⏳ 載入中...</div>;
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { isEmbeddedInAppBrowser } from './utils/browserDetect';
+import { useIsMobile } from './hooks/useIsMobile';
 
 import './index.css'; 
 
@@ -43,6 +44,7 @@ function MainApp() {
   const [currentView, setCurrentView] = useState("studentHome");
   const [quizConfig, setQuizConfig] = useState(null);
   const hasUpdate = useVersionCheck();
+  const isMobile = useIsMobile();
 
   // 🌟 不只擋 LINE：舉凡 FB/IG/微信/Android 系統 WebView 等內嵌瀏覽器都會被 Google 擋下登入，
   // 常見於平板用某些「QR Code 掃描」App 直接開連結的情況，統一在這裡先攔下來並提示切換瀏覽器
@@ -107,20 +109,23 @@ function MainApp() {
         <Login onLoginSuccess={handleLoginSuccess} />
       ) : (
         <div>
-          <div style={{ padding: '10px 20px', backgroundColor: '#4a4a4a', textAlign: 'right', borderBottom: '4px solid #2c2c2c', position: 'sticky', top: 0, zIndex: 100 }}>
-            <span style={{ color: 'white', marginRight: '20px', fontFamily: '"tearsfont-1.2", sans-serif' }}>目前登入：{currentUser.displayName}</span>
+          {/* 🌟 手機版縮成一行：名字太長時用 … 截斷，按鈕不換行 */}
+          <div style={{ padding: isMobile ? '8px 12px' : '10px 20px', backgroundColor: '#4a4a4a', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: isMobile ? '8px' : 0, borderBottom: '4px solid #2c2c2c', position: 'sticky', top: 0, zIndex: 100 }}>
+            <span style={{ color: 'white', marginRight: isMobile ? 'auto' : '20px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: '"tearsfont-1.2", sans-serif' }}>
+              {isMobile ? currentUser.displayName : `目前登入：${currentUser.displayName}`}
+            </span>
             
             {isTeacher && (
               <button 
                 className="pixel-btn btn-blue"
                 onClick={() => setCurrentView(currentView === "teacher" ? "studentHome" : "teacher")}
-                style={{ marginRight: '10px', padding: '5px 10px', fontSize: '1rem' }}
+                style={{ marginRight: isMobile ? 0 : '10px', padding: '5px 10px', fontSize: '1rem', flexShrink: 0 }}
               >
-                切換至 {currentView === "teacher" ? "學生主頁" : "教師後台"}
+                {isMobile ? (currentView === "teacher" ? "學生" : "後台") : `切換至 ${currentView === "teacher" ? "學生主頁" : "教師後台"}`}
               </button>
             )}
             
-            <button className="pixel-btn btn-red" onClick={handleLogout} style={{ padding: '5px 10px', fontSize: '1rem' }}>登出</button>
+            <button className="pixel-btn btn-red" onClick={handleLogout} style={{ padding: '5px 10px', fontSize: '1rem', flexShrink: 0 }}>登出</button>
           </div>
 
           {currentView === "studentHome" && (
@@ -147,7 +152,8 @@ function MainApp() {
             )}
           </Suspense>
 
-          <div style={{ position: 'fixed', bottom: '8px', right: '12px', fontSize: '0.75rem', color: '#9a9a9a', opacity: 0.8, pointerEvents: 'none', userSelect: 'none', zIndex: 1000 }}>
+          {/* 手機版學生主頁底部有分頁列，版權字樣移到分頁列上方 */}
+          <div style={{ position: 'fixed', bottom: isMobile && currentView === "studentHome" ? 'calc(72px + env(safe-area-inset-bottom))' : '8px', right: '12px', fontSize: '0.75rem', color: '#9a9a9a', opacity: 0.8, pointerEvents: 'none', userSelect: 'none', zIndex: 1000 }}>
             © 2026 浩宇老師｜桃源國小專用
           </div>
         </div>
