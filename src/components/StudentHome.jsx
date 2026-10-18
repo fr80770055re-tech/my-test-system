@@ -85,7 +85,9 @@ const StudentHome = ({ user, onStartQuiz, initialTab = 'quiz' }) => {
               await setDoc(doc(db, "users", user.uid), {
                 ...oldData,
                 name: oldData.name || user.displayName || '未命名學生',
-                email: user.email
+                email: user.email,
+                // Firestore 規則靠這個欄位找到舊文件，核對搬過來的金幣與道具沒有被竄改
+                migratedFrom: existingDoc.id
               });
               
               await deleteDoc(doc(db, "users", existingDoc.id));
