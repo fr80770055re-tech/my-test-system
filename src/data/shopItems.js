@@ -136,23 +136,31 @@ export const SHOP_ITEMS = [
   { id: 'avatar_lady', name: '氣質千金', price: 230, imageUrl: avatarLadyImg, type: 'base', desc: '優雅氣質，舉手投足都是貴族風範。' },
   { id: 'avatar_sumo', name: '相撲力士', price: 220, imageUrl: avatarSumoImg, type: 'base', desc: '力大無窮，穩如泰山！' },
   { id: 'avatar_pinkpegasus', name: '粉紅飛馬', price: 250, imageUrl: avatarPinkPegasusImg, type: 'base', desc: '傳說中的粉紅色天馬，優雅地翱翔天際。' },
-  { id: 'acc_lobster', name: '龍蝦大將', price: 65, imageUrl: accLobsterImg, type: 'accessory', desc: '揮舞著大螯，霸氣十足的海中戰士。' },
-  { id: 'acc_shimaenaga', name: '雪白小鳥', price: 70, imageUrl: accShimaenagaImg, type: 'accessory', desc: '雪白圓滾滾，森林中的可愛精靈鳥。' },
-  { id: 'acc_hedgehog', name: '呆萌刺蝟', price: 60, imageUrl: accHedgehogImg, type: 'accessory', desc: '圓滾滾又帶刺，讓人忍不住想抱抱（小心）！' },
-  { id: 'acc_whitecat', name: '白色小貓', price: 75, imageUrl: accWhiteCatImg, type: 'accessory', desc: '慵懶可愛，隨時準備討摸摸。' },
-  { id: 'acc_peacock', name: '華麗孔雀', price: 90, imageUrl: accPeacockImg, type: 'accessory', desc: '展開華麗羽翼，全場最亮眼的焦點！' },
+  { id: 'acc_lobster', corner: true, name: '龍蝦大將', price: 65, imageUrl: accLobsterImg, type: 'accessory', desc: '揮舞著大螯，霸氣十足的海中戰士。' },
+  { id: 'acc_shimaenaga', corner: true, name: '雪白小鳥', price: 70, imageUrl: accShimaenagaImg, type: 'accessory', desc: '雪白圓滾滾，森林中的可愛精靈鳥。' },
+  { id: 'acc_hedgehog', corner: true, name: '呆萌刺蝟', price: 60, imageUrl: accHedgehogImg, type: 'accessory', desc: '圓滾滾又帶刺，讓人忍不住想抱抱（小心）！' },
+  { id: 'acc_whitecat', corner: true, name: '白色小貓', price: 75, imageUrl: accWhiteCatImg, type: 'accessory', desc: '慵懶可愛，隨時準備討摸摸。' },
+  { id: 'acc_peacock', corner: true, name: '華麗孔雀', price: 90, imageUrl: accPeacockImg, type: 'accessory', desc: '展開華麗羽翼，全場最亮眼的焦點！' },
   { id: 'avatar_kintaro', name: '怪力金太郎', price: 235, imageUrl: avatarKintaroImg, type: 'base', desc: '力大無窮的民間傳說英雄，據說能與熊摔角！' },
   { id: 'avatar_idol', name: '閃亮偶像', price: 220, imageUrl: avatarIdolImg, type: 'base', desc: '舞台上閃閃發光，粉絲們的心中偶像。' },
   { id: 'avatar_patissier', name: '甜點主廚', price: 205, imageUrl: avatarPatissierImg, type: 'base', desc: '製作出讓人幸福的甜點大師。' },
   { id: 'avatar_primitiveman', name: '原始人', price: 200, imageUrl: avatarPrimitiveManImg, type: 'base', desc: '來自遠古時代，充滿原始野性的力量！' },
   { id: 'avatar_vegetableshop', name: '蔬果老闆', price: 210, imageUrl: avatarVegetableShopImg, type: 'base', desc: '新鮮蔬果每日直送，社區的好鄰居。' },
   { id: 'avatar_drumband', name: '鼓笛隊指揮', price: 245, imageUrl: avatarDrumbandImg, type: 'base', desc: '揮舞指揮棒，帶領隊伍邁向勝利！' },
-  { id: 'acc_capybara', name: '悠閒水豚君', price: 85, imageUrl: accCapybaraImg, type: 'accessory', desc: '泡在溫泉裡也不奇怪，天生一副悠閒臉。' },
-  { id: 'acc_sloth', name: '慢吞吞樹懶', price: 70, imageUrl: accSlothImg, type: 'accessory', desc: '慢慢來比較快，樹懶的生活哲學。' },
-  { id: 'acc_octopus', name: '八腳章魚', price: 65, imageUrl: accOctopusImg, type: 'accessory', desc: '八隻腳靈活運用，解題效率加倍？' },
-  { id: 'acc_seahorse', name: '優雅海馬', price: 60, imageUrl: accSeahorseImg, type: 'accessory', desc: '優雅漂浮在海中的神秘小生物。' },
-  { id: 'acc_frog', name: '呱呱青蛙', price: 65, imageUrl: accFrogImg, type: 'accessory', desc: '呱呱呱，池塘裡的活力歌手。' },
+  { id: 'acc_capybara', corner: true, name: '悠閒水豚君', price: 85, imageUrl: accCapybaraImg, type: 'accessory', desc: '泡在溫泉裡也不奇怪，天生一副悠閒臉。' },
+  { id: 'acc_sloth', corner: true, name: '慢吞吞樹懶', price: 70, imageUrl: accSlothImg, type: 'accessory', desc: '慢慢來比較快，樹懶的生活哲學。' },
+  { id: 'acc_octopus', corner: true, name: '八腳章魚', price: 65, imageUrl: accOctopusImg, type: 'accessory', desc: '八隻腳靈活運用，解題效率加倍？' },
+  { id: 'acc_seahorse', corner: true, name: '優雅海馬', price: 60, imageUrl: accSeahorseImg, type: 'accessory', desc: '優雅漂浮在海中的神秘小生物。' },
+  { id: 'acc_frog', corner: true, name: '呱呱青蛙', price: 65, imageUrl: accFrogImg, type: 'accessory', desc: '呱呱呱，池塘裡的活力歌手。' },
 ];
 
 export const DEFAULT_BASE_URL = baseBearImg;
 export { moneyIconImg };
+
+// 🌟 飾品疊在人物上的位置：舊飾品的圖檔本身已留白、內容在右下角；
+// 標記 corner 的新飾品圖是滿版的，這裡縮成 1/4 大小（長寬各一半）並靠右下，避免擋住人物
+export const getAccessoryLayerStyle = (item) => (
+  item?.corner
+    ? { top: 'auto', left: 'auto', right: 0, bottom: 0, width: '50%', height: '50%', objectFit: 'contain', objectPosition: 'right bottom' }
+    : {}
+);

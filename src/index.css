@@ -72,10 +72,9 @@ html, body {
 .btn-red { background-color: #b97a7a; color: white; }
 .btn-gray { background-color: #9ea3a3; color: white; }
 
-/* 白字在低彩度底色上對比不夠，加一圈像素硬描邊（像素遊戲 UI 的經典做法） */
+/* 白字在低彩度底色上對比不夠，加一圈 1px 細描邊（太粗會糊掉筆畫，小字尤其看不清） */
 .btn-blue, .btn-green, .btn-red, .btn-gray, .pixel-btn:disabled {
-  text-shadow: 2px 0 #4a4a4a, -2px 0 #4a4a4a, 0 2px #4a4a4a, 0 -2px #4a4a4a,
-               1px 1px #4a4a4a, -1px -1px #4a4a4a, 1px -1px #4a4a4a, -1px 1px #4a4a4a;
+  text-shadow: 1px 0 #4a4a4a, -1px 0 #4a4a4a, 0 1px #4a4a4a, 0 -1px #4a4a4a;
 }
 
 /* 紙卡按鈕：測驗選項用，白底深字最好讀 */

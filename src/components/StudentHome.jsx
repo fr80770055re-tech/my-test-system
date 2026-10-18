@@ -7,7 +7,7 @@ const GameLoading = () => <h2 style={{ textAlign: 'center', color: '#4a4a4a' }}>
 // 🌟 確保所有需要的 Firebase 功能都有引入
 import { doc, getDoc, updateDoc, setDoc, onSnapshot, query, collection, where, getDocs, deleteDoc, runTransaction, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
-import { SHOP_ITEMS, DEFAULT_BASE_URL, moneyIconImg } from '../data/shopItems';
+import { SHOP_ITEMS, DEFAULT_BASE_URL, moneyIconImg, getAccessoryLayerStyle } from '../data/shopItems';
 import { useIsMobile } from '../hooks/useIsMobile';
 import PixelDialog from './PixelDialog';
 
@@ -354,7 +354,7 @@ const StudentHome = ({ user, onStartQuiz, initialTab = 'quiz' }) => {
     return (
       <>
         <img src={base ? base.imageUrl : DEFAULT_BASE_URL} alt="" style={styles.layerImage} />
-        {accessory && <img src={accessory.imageUrl} alt="" style={styles.layerImage} />}
+        {accessory && <img src={accessory.imageUrl} alt="" style={{ ...styles.layerImage, ...getAccessoryLayerStyle(accessory) }} />}
         {equippedFace && <img src={equippedFace.imageUrl} alt="" style={styles.layerImage} />}
         {equippedHead && <img src={equippedHead.imageUrl} alt="" style={styles.layerImage} />}
       </>

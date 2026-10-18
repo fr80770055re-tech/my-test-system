@@ -5,7 +5,7 @@ import { db } from '../firebase';
 // =========================================================================
 // 🌟 1. 圖片與資源匯入 
 // =========================================================================
-import { SHOP_ITEMS, DEFAULT_BASE_URL, moneyIconImg } from '../data/shopItems';
+import { SHOP_ITEMS, DEFAULT_BASE_URL, moneyIconImg, getAccessoryLayerStyle } from '../data/shopItems';
 
 // =========================================================================
 // 🌟 2. 音效合成器
@@ -63,6 +63,134 @@ const getTodayStr = () => {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+};
+
+// -------------------------
+// 🌟 學生卡片元件 (支援刪除模式)
+// -------------------------
+// 🌟 卡片放在 TeacherDashboard 外面：寫在裡面的話，每次加扣分／資料更新都會變成「新的元件」，
+//    整排卡片被拆掉重建，網頁版偶爾會因此整頁跳回頂端
+const StudentCard = ({
+  st, isDraggable = false, hideButtons = false,
+  isAbsent, isDeleteMode, floatingAnim, isEditingName,
+  onToggleAbsent, onUpdateCoins, onDelete, onDragStart, onStartEditName, onSaveName,
+}) => {
+  const baseId = st.equipped?.base || st.equippedBase || 'base_bear';
+  const accId = st.equipped?.accessory || st.equippedAccessory || null;
+
+  const baseItem = SHOP_ITEMS.find(item => item.id === baseId);
+  const accItem = SHOP_ITEMS.find(item => item.id === accId);
+  const displayName = st.name || st.displayName || '未命名';
+  const [editVal, setEditVal] = useState(displayName);
+
+  return (
+    <div
+      className="pixel-box"
+      style={{
+        ...styles.dojoCard,
+        padding: hideButtons ? '10px' : '15px',
+        // 🌟 進入刪除模式時，卡片外框變成紅色虛線；缺席時外框變灰色虛線
+        border: isDeleteMode ? '4px dashed #e74c3c' : (isAbsent ? '4px dashed #95a5a6' : '4px solid #4a4a4a'),
+        cursor: isDeleteMode ? 'pointer' : (isDraggable ? 'grab' : 'default'),
+        opacity: isDeleteMode ? 0.85 : 1
+      }}
+      draggable={isDraggable && !isDeleteMode}
+      onDragStart={(e) => isDraggable && !isDeleteMode && onDragStart(e, st.id)}
+      // 🌟 點擊整張卡片觸發刪除
+      onClick={() => {
+        if (isDeleteMode) {
+          onDelete(st.id, displayName);
+        }
+      }}
+    >
+      {/* 🌟 刪除模式的紅色大叉叉徽章 */}
+      {isDeleteMode && (
+        <div style={{ position: 'absolute', top: '-10px', right: '-10px', width: '30px', height: '30px', backgroundColor: '#e74c3c', color: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem', zIndex: 10, boxShadow: '0 2px 5px rgba(0,0,0,0.3)' }}>
+          ✖
+        </div>
+      )}
+
+      {/* 🌟 缺席登記按鈕：點擊切換該生是否缺席（灰色顯示，全班加扣分時自動跳過） */}
+      {!isDeleteMode && !hideButtons && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleAbsent(st.id); }}
+          title={isAbsent ? '點擊恢復為到班' : '點擊登記為缺席'}
+          style={{
+            position: 'absolute', top: '-10px', left: '-10px', width: '30px', height: '30px',
+            backgroundColor: isAbsent ? '#95a5a6' : '#fff', color: isAbsent ? '#fff' : '#4a4a4a',
+            border: '3px solid #4a4a4a', borderRadius: '50%',
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            fontSize: '0.9rem', cursor: 'pointer', zIndex: 10, boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+          }}
+        >
+          {isAbsent ? '🚫' : '🙋'}
+        </button>
+      )}
+
+      {isAbsent && !isDeleteMode && (
+        <div style={{ position: 'absolute', top: '8px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#7f8c8d', color: '#fff', fontSize: '0.75rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', zIndex: 5 }}>
+          缺席
+        </div>
+      )}
+
+      {floatingAnim && (
+        <div key={floatingAnim.key} className={`dojo-anim ${floatingAnim.type}`}>
+          {floatingAnim.text}
+        </div>
+      )}
+      
+      {/* 🌟 讓內部元素在刪除模式下不干擾點擊；缺席學生的頭像/姓名/金幣區塊變灰 */}
+      <div style={{ pointerEvents: isDeleteMode ? 'none' : 'auto', filter: isAbsent ? 'grayscale(1)' : 'none', opacity: isAbsent ? 0.6 : 1 }}>
+        <div style={{ position: 'relative', width: hideButtons ? '60px' : '80px', height: hideButtons ? '60px' : '80px', margin: '0 auto 10px', backgroundColor: '#e8e8e8', borderRadius: '15px', border: '3px solid #6e85b7', overflow: 'hidden' }}>
+          <img src={baseItem ? baseItem.imageUrl : DEFAULT_BASE_URL} alt="base" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', top: 0, left: 0 }} />
+          {accItem && <img src={accItem.imageUrl} alt="acc" style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, zIndex: 2, ...getAccessoryLayerStyle(accItem) }} />}
+        </div>
+        
+        {isEditingName ? (
+          <input 
+             type="text" 
+             value={editVal}
+             autoFocus
+             onChange={(e) => setEditVal(e.target.value)}
+             onBlur={() => onSaveName(st.id, editVal)}
+             onKeyDown={(e) => { if (e.key === 'Enter') onSaveName(st.id, editVal); }}
+             style={{width: '90%', textAlign: 'center', marginBottom: '5px', padding: '2px', fontWeight: 'bold'}}
+          />
+        ) : (
+          <div 
+            style={{fontSize: '1.2rem', fontWeight: 'bold', color: '#2c3e50', marginBottom: '5px', cursor: 'pointer'}} 
+            onDoubleClick={() => {onStartEditName(st.id); setEditVal(displayName);}}
+            title="點兩下修改名字"
+          >
+            {displayName}
+          </div>
+        )}
+        
+        <div style={{fontSize: '0.8rem', color: '#7f8c8d', marginBottom: '5px', wordBreak: 'break-all', padding: '0 5px'}}>
+          {st.email || '未綁定 Email'}
+        </div>
+        
+        <div style={{fontSize: '1.2rem', color: '#d6b75a', fontWeight: 'bold', marginBottom: hideButtons ? '0' : '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px'}}>
+          <img src={moneyIconImg} alt="金幣" style={{width: '20px', height: '20px'}} />{st.coins || 0}
+        </div>
+      </div>
+      
+      {/* 🌟 只有在「不是刪除模式」且「允許顯示按鈕」時，才顯示加扣分按鈕；缺席時整組停用，避免誤加扣分 */}
+      {!hideButtons && !isDeleteMode && (
+        <div style={{display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '10px'}}>
+           <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
+            <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => onUpdateCoins(st.id, 1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+1</button>
+            <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => onUpdateCoins(st.id, 5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+5</button>
+            <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => onUpdateCoins(st.id, 10)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+10</button>
+          </div>
+          <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
+            <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => onUpdateCoins(st.id, -1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-1</button>
+            <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => onUpdateCoins(st.id, -5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-5</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // =========================================================================
@@ -422,128 +550,20 @@ const TeacherDashboard = ({ user }) => {
     await Promise.all(promises);
   };
 
-  // -------------------------
-  // 🌟 學生卡片元件 (支援刪除模式)
-  // -------------------------
-  const StudentCard = ({ st, isDraggable = false, hideButtons = false }) => {
-    const baseId = st.equipped?.base || st.equippedBase || 'base_bear';
-    const accId = st.equipped?.accessory || st.equippedAccessory || null;
-
-    const baseItem = SHOP_ITEMS.find(item => item.id === baseId);
-    const accItem = SHOP_ITEMS.find(item => item.id === accId);
-    const displayName = st.name || st.displayName || '未命名';
-    const [editVal, setEditVal] = useState(displayName);
-    const isAbsent = absentIds.has(st.id); // 🌟 是否已登記缺席
-
-    return (
-      <div
-        className="pixel-box"
-        style={{
-          ...styles.dojoCard,
-          padding: hideButtons ? '10px' : '15px',
-          // 🌟 進入刪除模式時，卡片外框變成紅色虛線；缺席時外框變灰色虛線
-          border: isDeleteMode ? '4px dashed #e74c3c' : (isAbsent ? '4px dashed #95a5a6' : '4px solid #4a4a4a'),
-          cursor: isDeleteMode ? 'pointer' : (isDraggable ? 'grab' : 'default'),
-          opacity: isDeleteMode ? 0.85 : 1
-        }}
-        draggable={isDraggable && !isDeleteMode}
-        onDragStart={(e) => isDraggable && !isDeleteMode && handleDragStart(e, st.id)}
-        // 🌟 點擊整張卡片觸發刪除
-        onClick={() => {
-          if (isDeleteMode) {
-            handleDeleteStudent(st.id, displayName);
-          }
-        }}
-      >
-        {/* 🌟 刪除模式的紅色大叉叉徽章 */}
-        {isDeleteMode && (
-          <div style={{ position: 'absolute', top: '-10px', right: '-10px', width: '30px', height: '30px', backgroundColor: '#e74c3c', color: 'white', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem', zIndex: 10, boxShadow: '0 2px 5px rgba(0,0,0,0.3)' }}>
-            ✖
-          </div>
-        )}
-
-        {/* 🌟 缺席登記按鈕：點擊切換該生是否缺席（灰色顯示，全班加扣分時自動跳過） */}
-        {!isDeleteMode && !hideButtons && (
-          <button
-            onClick={(e) => { e.stopPropagation(); handleToggleAbsent(st.id); }}
-            title={isAbsent ? '點擊恢復為到班' : '點擊登記為缺席'}
-            style={{
-              position: 'absolute', top: '-10px', left: '-10px', width: '30px', height: '30px',
-              backgroundColor: isAbsent ? '#95a5a6' : '#fff', color: isAbsent ? '#fff' : '#4a4a4a',
-              border: '3px solid #4a4a4a', borderRadius: '50%',
-              display: 'flex', justifyContent: 'center', alignItems: 'center',
-              fontSize: '0.9rem', cursor: 'pointer', zIndex: 10, boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
-            }}
-          >
-            {isAbsent ? '🚫' : '🙋'}
-          </button>
-        )}
-
-        {isAbsent && !isDeleteMode && (
-          <div style={{ position: 'absolute', top: '8px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#7f8c8d', color: '#fff', fontSize: '0.75rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', zIndex: 5 }}>
-            缺席
-          </div>
-        )}
-
-        {floatingAnims[st.id] && (
-          <div key={floatingAnims[st.id].key} className={`dojo-anim ${floatingAnims[st.id].type}`}>
-            {floatingAnims[st.id].text}
-          </div>
-        )}
-        
-        {/* 🌟 讓內部元素在刪除模式下不干擾點擊；缺席學生的頭像/姓名/金幣區塊變灰 */}
-        <div style={{ pointerEvents: isDeleteMode ? 'none' : 'auto', filter: isAbsent ? 'grayscale(1)' : 'none', opacity: isAbsent ? 0.6 : 1 }}>
-          <div style={{ position: 'relative', width: hideButtons ? '60px' : '80px', height: hideButtons ? '60px' : '80px', margin: '0 auto 10px', backgroundColor: '#e8e8e8', borderRadius: '15px', border: '3px solid #6e85b7', overflow: 'hidden' }}>
-            <img src={baseItem ? baseItem.imageUrl : DEFAULT_BASE_URL} alt="base" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', top: 0, left: 0 }} />
-            {accItem && <img src={accItem.imageUrl} alt="acc" style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, zIndex: 2 }} />}
-          </div>
-          
-          {editingNameId === st.id ? (
-            <input 
-               type="text" 
-               value={editVal}
-               autoFocus
-               onChange={(e) => setEditVal(e.target.value)}
-               onBlur={() => handleSaveName(st.id, editVal)}
-               onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(st.id, editVal); }}
-               style={{width: '90%', textAlign: 'center', marginBottom: '5px', padding: '2px', fontWeight: 'bold'}}
-            />
-          ) : (
-            <div 
-              style={{fontSize: '1.2rem', fontWeight: 'bold', color: '#2c3e50', marginBottom: '5px', cursor: 'pointer'}} 
-              onDoubleClick={() => {setEditingNameId(st.id); setEditVal(displayName);}}
-              title="點兩下修改名字"
-            >
-              {displayName}
-            </div>
-          )}
-          
-          <div style={{fontSize: '0.8rem', color: '#7f8c8d', marginBottom: '5px', wordBreak: 'break-all', padding: '0 5px'}}>
-            {st.email || '未綁定 Email'}
-          </div>
-          
-          <div style={{fontSize: '1.2rem', color: '#d6b75a', fontWeight: 'bold', marginBottom: hideButtons ? '0' : '10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px'}}>
-            <img src={moneyIconImg} alt="金幣" style={{width: '20px', height: '20px'}} />{st.coins || 0}
-          </div>
-        </div>
-        
-        {/* 🌟 只有在「不是刪除模式」且「允許顯示按鈕」時，才顯示加扣分按鈕；缺席時整組停用，避免誤加扣分 */}
-        {!hideButtons && !isDeleteMode && (
-          <div style={{display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '10px'}}>
-             <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+1</button>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+5</button>
-              <button className="pixel-btn btn-blue" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, 10)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>+10</button>
-            </div>
-            <div style={{display: 'flex', gap: '5px', justifyContent: 'center'}}>
-              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -1)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-1</button>
-              <button className="pixel-btn btn-red" style={styles.miniBtn} onClick={() => handleUpdateCoins(st.id, -5)} disabled={isAbsent} title={isAbsent ? '此生已登記缺席，暫時無法加扣分' : undefined}>-5</button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
+  // 🌟 把卡片需要的狀態與操作一次打包，三個地方（列表、未入座區、座位表）共用
+  const cardProps = (st) => ({
+    st,
+    isAbsent: absentIds.has(st.id),
+    isDeleteMode,
+    floatingAnim: floatingAnims[st.id],
+    isEditingName: editingNameId === st.id,
+    onToggleAbsent: handleToggleAbsent,
+    onUpdateCoins: handleUpdateCoins,
+    onDelete: handleDeleteStudent,
+    onDragStart: handleDragStart,
+    onStartEditName: setEditingNameId,
+    onSaveName: handleSaveName,
+  });
 
   const fetchAnalytics = async () => {
     try {
@@ -926,7 +946,7 @@ const TeacherDashboard = ({ user }) => {
 
           {dojoMode === 'list' ? (
             <div style={styles.dojoGrid}>
-              {groupFilteredStudents.map(st => <StudentCard key={st.id} st={st} hideButtons={false} />)}
+              {groupFilteredStudents.map(st => <StudentCard key={st.id} {...cardProps(st)} hideButtons={false} />)}
             </div>
           ) : (
             <div>
@@ -952,7 +972,7 @@ const TeacherDashboard = ({ user }) => {
                 <div style={{width: '100%', fontWeight: 'bold', color: '#4a4a4a'}}>🚶 未編排座位的學生：</div>
                 {groupFilteredStudents.filter(s => s.seatIndex === undefined || s.seatIndex === -1 || s.seatIndex >= gridCols * gridRows).map(st => (
                   <div key={st.id} style={{transform: 'scale(0.9)', transformOrigin: 'top left'}}>
-                    <StudentCard st={st} isDraggable={true} hideButtons={true} />
+                    <StudentCard {...cardProps(st)} isDraggable={true} hideButtons={true} />
                   </div>
                 ))}
               </div>
@@ -967,7 +987,7 @@ const TeacherDashboard = ({ user }) => {
                       onDrop={(e) => handleDrop(e, idx)} 
                       onDragOver={allowDrop}
                     >
-                      {occupant && <StudentCard st={occupant} isDraggable={true} hideButtons={true} />}
+                      {occupant && <StudentCard {...cardProps(occupant)} isDraggable={true} hideButtons={true} />}
                     </div>
                   );
                 })}
@@ -1390,9 +1410,12 @@ const TeacherDashboard = ({ user }) => {
               {displayStudent ? (
                 <>
                   <img src={SHOP_ITEMS.find(item => item.id === (displayStudent.equipped?.base || displayStudent.equippedBase || 'base_bear'))?.imageUrl || DEFAULT_BASE_URL} alt="base" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', top: 0, left: 0 }} />
-                  {SHOP_ITEMS.find(item => item.id === (displayStudent.equipped?.accessory || displayStudent.equippedAccessory)) && (
-                    <img src={SHOP_ITEMS.find(item => item.id === (displayStudent.equipped?.accessory || displayStudent.equippedAccessory)).imageUrl} alt="acc" style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, zIndex: 2 }} />
-                  )}
+                  {(() => {
+                    const pickedAcc = SHOP_ITEMS.find(item => item.id === (displayStudent.equipped?.accessory || displayStudent.equippedAccessory));
+                    return pickedAcc && (
+                      <img src={pickedAcc.imageUrl} alt="acc" style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, zIndex: 2, ...getAccessoryLayerStyle(pickedAcc) }} />
+                    );
+                  })()}
                 </>
               ) : (
                 <div style={{display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', fontSize: '4rem'}}>❓</div>
