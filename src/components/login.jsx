@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 // 🌟 確保引入了 getRedirectResult 和 signInWithRedirect
 import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { auth, provider } from '../firebase';
-import { isMobileOrTablet } from '../utils/browserDetect';
 
 const Login = ({ onLoginSuccess }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -25,29 +24,30 @@ const Login = ({ onLoginSuccess }) => {
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
-    // 🌟 偵測是否為手機或平板（含新版 iPadOS 會偽裝成 Mac 桌機 UA 的情況，見 browserDetect.js）
-    const isMobile = isMobileOrTablet();
 
     try {
-      if (isMobile) {
-        // 📱 手機/平板版：使用「本頁跳轉」登入，100% 避開彈出視窗阻擋！
-        await signInWithRedirect(auth, provider);
-      } else {
-        // 💻 電腦版：使用「彈出視窗」登入，體驗較快！
+      // 🌟 所有裝置一律先用「彈出視窗」登入。
+      // 以前手機/平板走「本頁跳轉」(signInWithRedirect)，但新版 Android Chrome 會封鎖跨網域儲存空間，
+      // 網站讀不到 authDomain（quizprojecttyp.firebaseapp.com）存的登入結果，
+      // 造成「選完帳號又跳回登入畫面」。彈出視窗登入不受這個限制影響。
+      // 注意：signInWithPopup 前面不能有其他 await，否則瀏覽器會認為不是點擊觸發而擋掉視窗。
+      const result = await signInWithPopup(auth, provider);
+      onLoginSuccess(result.user);
+    } catch (error) {
+      // 學生自己關掉選帳號視窗，回到登入按鈕即可，不用跳錯誤
+      if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+        setIsLoading(false);
+        return;
+      }
+      // 瀏覽器擋下彈出視窗時，最後手段才改用「本頁跳轉」登入
+      if (error.code === 'auth/popup-blocked') {
         try {
-          const result = await signInWithPopup(auth, provider);
-          onLoginSuccess(result.user);
-        } catch (popupError) {
-          // 🌟 有些桌機瀏覽器（或被誤判成電腦版的裝置）預設就擋跳出視窗，
-          // 遇到「彈出視窗被封鎖」時自動改用「本頁跳轉」登入，避免整個卡住無法登入
-          if (popupError.code === 'auth/popup-blocked') {
-            await signInWithRedirect(auth, provider);
-            return;
-          }
-          throw popupError;
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectError) {
+          console.error("跳轉登入失敗:", redirectError);
         }
       }
-    } catch (error) {
       console.error("登入失敗:", error);
       alert("登入中斷，請確認網路或再試一次。");
       setIsLoading(false);
